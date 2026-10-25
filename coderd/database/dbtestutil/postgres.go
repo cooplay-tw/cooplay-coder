@@ -54,15 +54,43 @@ var (
 	DefaultBroker = Broker{}
 )
 
+// DefaultPostgresPortEnv overrides the host port of the default test Postgres
+// server. Set it when another Postgres server already listens on 5432 so tests
+// never create their databases in that unrelated server.
+const DefaultPostgresPortEnv = "CODER_TEST_POSTGRES_PORT"
+
+// defaultPostgresPort returns the host port of the default test Postgres
+// server, honoring DefaultPostgresPortEnv.
+func defaultPostgresPort() (int, error) {
+	raw := os.Getenv(DefaultPostgresPortEnv)
+	if raw == "" {
+		return 5432, nil
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil || port <= 0 || port > 65535 {
+		return 0, xerrors.Errorf("invalid %s %q", DefaultPostgresPortEnv, raw)
+	}
+	return port, nil
+}
+
 // initDefaultConnection initializes the default postgres connection parameters.
-// It first checks if the database is running at localhost:5432. If it is, it will
-// use that database. If it's not, it will start a new container and use that.
+// It first checks if the database is running at localhost:5432 (or the port in
+// DefaultPostgresPortEnv). If it is, it will use that database. If it's not,
+// it will start a new container and use that.
 func initDefaultConnection(t TBSubset) error {
+	port, portErr := defaultPostgresPort()
+	if portErr != nil {
+		return portErr
+	}
+	containerName := "coder-test-postgres"
+	if port != 5432 {
+		containerName = fmt.Sprintf("coder-test-postgres-%d", port)
+	}
 	params := ConnectionParams{
 		Username: "postgres",
 		Password: "postgres",
 		Host:     "127.0.0.1",
-		Port:     "5432",
+		Port:     strconv.Itoa(port),
 		DBName:   "postgres",
 	}
 	dsn := params.DSN()
@@ -103,8 +131,8 @@ func initDefaultConnection(t TBSubset) error {
 		// by subsequent tests. It'll keep on running until the user terminates
 		// it manually.
 		container, _, err := openContainer(t, DBContainerOptions{
-			Name: "coder-test-postgres",
-			Port: 5432,
+			Name: containerName,
+			Port: port,
 		})
 		if err != nil {
 			return xerrors.Errorf("open container: %w", err)
