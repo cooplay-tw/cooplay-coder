@@ -463,6 +463,16 @@ var (
 		Type: "workspace",
 	}
 
+	// ResourceWorkspaceAdmission
+	// Valid Actions
+	//  - "ActionCreate" :: create a workspace admission record
+	//  - "ActionDelete" :: delete managed templates and entitlements
+	//  - "ActionRead" :: read workspace admission records, managed templates and entitlements
+	//  - "ActionUpdate" :: update workspace admission records, managed templates and entitlementsWorkspace admission state is managed by the restricted admission service and internal system subjects.
+	ResourceWorkspaceAdmission = Object{
+		Type: "workspace_admission",
+	}
+
 	// ResourceWorkspaceAgentDevcontainers
 	// Valid Actions
 	//  - "ActionCreate" :: create workspace agent devcontainers
@@ -568,6 +578,7 @@ func AllResources() []Objecter {
 		ResourceUserSkill,
 		ResourceWebpushSubscription,
 		ResourceWorkspace,
+		ResourceWorkspaceAdmission,
 		ResourceWorkspaceAgentDevcontainers,
 		ResourceWorkspaceAgentResourceMonitor,
 		ResourceWorkspaceBuildOrchestration,

@@ -33,6 +33,7 @@ import (
 	"github.com/coder/coder/v2/coderd/provisionerdserver"
 	"github.com/coder/coder/v2/coderd/rbac"
 	"github.com/coder/coder/v2/coderd/rbac/policy"
+	"github.com/coder/coder/v2/coderd/workspaceadmission"
 	"github.com/coder/coder/v2/coderd/wsbuilder"
 	"github.com/coder/coder/v2/coderd/wspubsub"
 	"github.com/coder/coder/v2/codersdk"
@@ -809,6 +810,7 @@ func (api *API) patchCancelWorkspaceBuild(rw http.ResponseWriter, r *http.Reques
 	resp := codersdk.Response{
 		Message: "Internal error canceling workspace build.",
 	}
+	admissionCanceled := false
 	err = api.Database.InTx(func(db database.Store) error {
 		valid, err := verifyUserCanCancelWorkspaceBuilds(ctx, db, httpmw.APIKey(r).UserID, workspace.TemplateID, expectStatus)
 		if err != nil {
@@ -873,11 +875,32 @@ func (api *API) patchCancelWorkspaceBuild(rw http.ResponseWriter, r *http.Reques
 			return xerrors.Errorf("update provisioner job: %w", err)
 		}
 
+		// We hold the job row lock, so no provisioner can acquire the job
+		// concurrently. A job without a worker never started and its
+		// admission ends here. A job that a provisioner already acquired
+		// goes through running cancellation and keeps its acquired admission.
+		if !job.WorkerID.Valid {
+			// nolint:gocritic // The cancel was authorized above; ending the admission is build bookkeeping.
+			admissionCanceled, err = workspaceadmission.CancelPending(dbauthz.AsWorkspaceBuilder(ctx), db, job.ID, dbtime.Now())
+			if err != nil {
+				code = http.StatusInternalServerError
+				resp.Message = "Internal error canceling workspace build admission."
+				resp.Detail = err.Error()
+
+				return xerrors.Errorf("cancel workspace build admission: %w", err)
+			}
+		}
+
 		return nil
 	}, nil)
 	if err != nil {
 		httpapi.Write(ctx, rw, code, resp)
 		return
+	}
+	if admissionCanceled {
+		if err := workspaceadmission.Publish(api.Pubsub, workspaceBuild.JobID); err != nil {
+			api.Logger.Warn(ctx, "failed to publish workspace admission event", slog.Error(err))
+		}
 	}
 
 	api.publishWorkspaceUpdate(ctx, workspace.OwnerID, wspubsub.WorkspaceEvent{

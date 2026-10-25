@@ -52,6 +52,7 @@ const (
 	ResourceUserSkill                     RBACResource = "user_skill"
 	ResourceWebpushSubscription           RBACResource = "webpush_subscription"
 	ResourceWorkspace                     RBACResource = "workspace"
+	ResourceWorkspaceAdmission            RBACResource = "workspace_admission"
 	ResourceWorkspaceAgentDevcontainers   RBACResource = "workspace_agent_devcontainers"
 	ResourceWorkspaceAgentResourceMonitor RBACResource = "workspace_agent_resource_monitor"
 	ResourceWorkspaceBuildOrchestration   RBACResource = "workspace_build_orchestration"
@@ -133,6 +134,7 @@ var RBACResourceActions = map[RBACResource][]RBACAction{
 	ResourceUserSkill:                     {ActionCreate, ActionDelete, ActionRead, ActionUpdate},
 	ResourceWebpushSubscription:           {ActionCreate, ActionDelete, ActionRead},
 	ResourceWorkspace:                     {ActionApplicationConnect, ActionCreate, ActionCreateAgent, ActionDelete, ActionDeleteAgent, ActionRead, ActionShare, ActionSSH, ActionWorkspaceStart, ActionWorkspaceStop, ActionUpdate, ActionUpdateAgent},
+	ResourceWorkspaceAdmission:            {ActionCreate, ActionDelete, ActionRead, ActionUpdate},
 	ResourceWorkspaceAgentDevcontainers:   {ActionCreate},
 	ResourceWorkspaceAgentResourceMonitor: {ActionCreate, ActionRead, ActionUpdate},
 	ResourceWorkspaceBuildOrchestration:   {ActionCreate, ActionDelete, ActionRead, ActionUpdate},

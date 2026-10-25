@@ -73,6 +73,10 @@ const (
 	CheckUserSkillsDescriptionSize                           CheckConstraint = "user_skills_description_size"                              // user_skills
 	CheckUserSkillsNameFormat                                CheckConstraint = "user_skills_name_format"                                   // user_skills
 	CheckUserSkillsNameSize                                  CheckConstraint = "user_skills_name_size"                                     // user_skills
+	CheckWorkspaceAdmissionTemplatesProfileParameterCheck    CheckConstraint = "workspace_admission_templates_profile_parameter_check"     // workspace_admission_templates
+	CheckWorkspaceBuildAdmissionsAcquiredAtCheck             CheckConstraint = "workspace_build_admissions_acquired_at_check"              // workspace_build_admissions
+	CheckWorkspaceBuildAdmissionsGrantFieldsCheck            CheckConstraint = "workspace_build_admissions_grant_fields_check"             // workspace_build_admissions
+	CheckWorkspaceBuildAdmissionsQueuePositionCheck          CheckConstraint = "workspace_build_admissions_queue_position_check"           // workspace_build_admissions
 	CheckWorkspaceBuildOrchestrationsAttemptCountCheck       CheckConstraint = "workspace_build_orchestrations_attempt_count_check"        // workspace_build_orchestrations
 	CheckWorkspaceBuildOrchestrationsChildLogLevelCheck      CheckConstraint = "workspace_build_orchestrations_child_log_level_check"      // workspace_build_orchestrations
 	CheckWorkspaceBuildOrchestrationsChildParametersCheck    CheckConstraint = "workspace_build_orchestrations_child_parameters_check"     // workspace_build_orchestrations

@@ -321,6 +321,9 @@ var (
 					rbac.ResourceWorkspace.Type:        {policy.ActionRead, policy.ActionUpdate},
 					rbac.ResourceWorkspaceDormant.Type: {policy.ActionRead, policy.ActionUpdate},
 					rbac.ResourceProvisionerJobs.Type:  {policy.ActionRead, policy.ActionUpdate},
+					// The reaper exempts capacity waits and revokes the
+					// admission of granted jobs it fails.
+					rbac.ResourceWorkspaceAdmission.Type: {policy.ActionRead, policy.ActionUpdate},
 				}),
 				User:    []rbac.Permission{},
 				ByOrgID: map[string]rbac.OrgPermissions{},
@@ -798,6 +801,10 @@ var (
 					// Reading provisioner state requires template update
 					// permission.
 					rbac.ResourceTemplate.Type: {policy.ActionUpdate},
+					// Reading managed template settings and entitlements,
+					// recording waiting admissions for managed START builds
+					// and ending them when a pending build is canceled.
+					rbac.ResourceWorkspaceAdmission.Type: {policy.ActionRead, policy.ActionCreate, policy.ActionUpdate},
 				}),
 				User:    []rbac.Permission{},
 				ByOrgID: map[string]rbac.OrgPermissions{},
@@ -869,6 +876,36 @@ var (
 					rbac.ResourceUser.Type:               {policy.ActionCreate, policy.ActionUpdate, policy.ActionRead, policy.ActionUpdatePersonal},
 					rbac.ResourceOrganization.Type:       {policy.ActionRead},
 					rbac.ResourceOrganizationMember.Type: {policy.ActionRead, policy.ActionCreate, policy.ActionUpdate},
+				}),
+				User:    []rbac.Permission{},
+				ByOrgID: map[string]rbac.OrgPermissions{},
+			},
+		}),
+		Scope: rbac.ScopeAll,
+	}.WithCachedASTValue()
+
+	// subjectWorkspaceAdmission is the identity of the restricted workspace
+	// admission service used by the external capacity controller.
+	subjectWorkspaceAdmission = rbac.Subject{
+		Type:         rbac.SubjectTypeWorkspaceAdmission,
+		FriendlyName: "Workspace Admission",
+		ID:           uuid.Nil.String(),
+		Roles: rbac.Roles([]rbac.Role{
+			{
+				Identifier:  rbac.RoleIdentifier{Name: "workspace-admission"},
+				DisplayName: "Workspace Admission",
+				Site: rbac.Permissions(map[string][]policy.Action{
+					// Admission records, managed templates and entitlements.
+					rbac.ResourceWorkspaceAdmission.Type: {policy.ActionCreate, policy.ActionRead, policy.ActionUpdate, policy.ActionDelete},
+					// Locking, canceling and failing pending build jobs.
+					rbac.ResourceProvisionerJobs.Type: {policy.ActionRead, policy.ActionUpdate},
+					// Reading workspaces and builds of managed templates.
+					rbac.ResourceWorkspace.Type:        {policy.ActionRead},
+					rbac.ResourceWorkspaceDormant.Type: {policy.ActionRead},
+					rbac.ResourceTemplate.Type:         {policy.ActionRead},
+					// Listing users with their OIDC identity, suspending and
+					// reactivating them.
+					rbac.ResourceUser.Type: {policy.ActionRead, policy.ActionReadPersonal, policy.ActionUpdate},
 				}),
 				User:    []rbac.Permission{},
 				ByOrgID: map[string]rbac.OrgPermissions{},
@@ -1056,6 +1093,14 @@ func AsSCIMProvisioner(ctx context.Context) context.Context {
 // read and refresh any user's external auth links.
 func AsExternalAuthCoordinator(ctx context.Context) context.Context {
 	return As(ctx, subjectExternalAuthCoordinator)
+}
+
+// AsWorkspaceAdmission returns a context with an actor that has the
+// permissions of the restricted workspace admission service: managing
+// admission records, managed templates and entitlements, canceling or failing
+// managed build jobs, and suspending users.
+func AsWorkspaceAdmission(ctx context.Context) context.Context {
+	return As(ctx, subjectWorkspaceAdmission)
 }
 
 var AsRemoveActor = rbac.Subject{
@@ -2716,6 +2761,20 @@ func (q *querier) DeleteWorkspaceACLsByOrganization(ctx context.Context, params 
 		return err
 	}
 	return q.db.DeleteWorkspaceACLsByOrganization(ctx, params)
+}
+
+func (q *querier) DeleteWorkspaceAdmissionEntitlementsByUserID(ctx context.Context, userID uuid.UUID) error {
+	if err := q.authorizeContext(ctx, policy.ActionDelete, rbac.ResourceWorkspaceAdmission); err != nil {
+		return err
+	}
+	return q.db.DeleteWorkspaceAdmissionEntitlementsByUserID(ctx, userID)
+}
+
+func (q *querier) DeleteWorkspaceAdmissionTemplateByTemplateID(ctx context.Context, templateID uuid.UUID) (int64, error) {
+	if err := q.authorizeContext(ctx, policy.ActionDelete, rbac.ResourceWorkspaceAdmission); err != nil {
+		return 0, err
+	}
+	return q.db.DeleteWorkspaceAdmissionTemplateByTemplateID(ctx, templateID)
 }
 
 func (q *querier) DeleteWorkspaceAgentPortShare(ctx context.Context, arg database.DeleteWorkspaceAgentPortShareParams) error {
@@ -5499,6 +5558,64 @@ func (q *querier) GetWorkspaceACLByID(ctx context.Context, id uuid.UUID) (databa
 	return q.db.GetWorkspaceACLByID(ctx, id)
 }
 
+func (q *querier) GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID(ctx context.Context, arg database.GetWorkspaceAdmissionEntitlementByUserIDAndTemplateIDParams) (database.WorkspaceAdmissionEntitlement, error) {
+	return fetch(q.log, q.auth, q.db.GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID)(ctx, arg)
+}
+
+func (q *querier) GetWorkspaceAdmissionEntitlementsByUserID(ctx context.Context, userID uuid.UUID) ([]database.WorkspaceAdmissionEntitlement, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceAdmissionEntitlementsByUserID(ctx, userID)
+}
+
+func (q *querier) GetWorkspaceAdmissionStateByJobID(ctx context.Context, jobID uuid.UUID) (database.GetWorkspaceAdmissionStateByJobIDRow, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.GetWorkspaceAdmissionStateByJobIDRow{}, err
+	}
+	return q.db.GetWorkspaceAdmissionStateByJobID(ctx, jobID)
+}
+
+func (q *querier) GetWorkspaceAdmissionStopOperationByOperationID(ctx context.Context, operationID uuid.UUID) (database.WorkspaceAdmissionStopOperation, error) {
+	return fetch(q.log, q.auth, q.db.GetWorkspaceAdmissionStopOperationByOperationID)(ctx, operationID)
+}
+
+func (q *querier) GetWorkspaceAdmissionTemplateByTemplateID(ctx context.Context, templateID uuid.UUID) (database.WorkspaceAdmissionTemplate, error) {
+	return fetch(q.log, q.auth, q.db.GetWorkspaceAdmissionTemplateByTemplateID)(ctx, templateID)
+}
+
+func (q *querier) GetWorkspaceAdmissionTemplates(ctx context.Context) ([]database.WorkspaceAdmissionTemplate, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceAdmissionTemplates(ctx)
+}
+
+func (q *querier) GetWorkspaceAdmissionUsers(ctx context.Context, userID uuid.UUID) ([]database.GetWorkspaceAdmissionUsersRow, error) {
+	// The result includes OIDC link identifiers, which are personal user
+	// data, so the caller needs read_personal on users as well.
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return nil, err
+	}
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceUser); err != nil {
+		return nil, err
+	}
+	if err := q.authorizeContext(ctx, policy.ActionReadPersonal, rbac.ResourceUser); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceAdmissionUsers(ctx, userID)
+}
+
+func (q *querier) GetWorkspaceAdmissionWorkspaces(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceAdmissionWorkspacesRow, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return nil, err
+	}
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspace); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceAdmissionWorkspaces(ctx, workspaceID)
+}
+
 func (q *querier) GetWorkspaceAgentAndWorkspaceByID(ctx context.Context, id uuid.UUID) (database.GetWorkspaceAgentAndWorkspaceByIDRow, error) {
 	return fetch(q.log, q.auth, q.db.GetWorkspaceAgentAndWorkspaceByID)(ctx, id)
 }
@@ -5742,6 +5859,38 @@ func (q *querier) GetWorkspaceAppsCreatedAfter(ctx context.Context, createdAt ti
 		return nil, err
 	}
 	return q.db.GetWorkspaceAppsCreatedAfter(ctx, createdAt)
+}
+
+func (q *querier) GetWorkspaceBuildAdmissionByJobID(ctx context.Context, jobID uuid.UUID) (database.WorkspaceBuildAdmission, error) {
+	return fetch(q.log, q.auth, q.db.GetWorkspaceBuildAdmissionByJobID)(ctx, jobID)
+}
+
+func (q *querier) GetWorkspaceBuildAdmissionRequestByJobID(ctx context.Context, jobID uuid.UUID) (database.GetWorkspaceBuildAdmissionRequestByJobIDRow, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.GetWorkspaceBuildAdmissionRequestByJobIDRow{}, err
+	}
+	return q.db.GetWorkspaceBuildAdmissionRequestByJobID(ctx, jobID)
+}
+
+func (q *querier) GetWorkspaceBuildAdmissionRequests(ctx context.Context, arg database.GetWorkspaceBuildAdmissionRequestsParams) ([]database.GetWorkspaceBuildAdmissionRequestsRow, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceBuildAdmissionRequests(ctx, arg)
+}
+
+func (q *querier) GetWorkspaceBuildAdmissionsByBuildIDs(ctx context.Context, buildIDs []uuid.UUID) ([]database.WorkspaceBuildAdmission, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceBuildAdmissionsByBuildIDs(ctx, buildIDs)
+}
+
+func (q *querier) GetWorkspaceBuildAdmissionsWatermark(ctx context.Context) (time.Time, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return time.Time{}, err
+	}
+	return q.db.GetWorkspaceBuildAdmissionsWatermark(ctx)
 }
 
 func (q *querier) GetWorkspaceBuildAgentsByInstanceID(ctx context.Context, authInstanceID string) ([]database.GetWorkspaceBuildAgentsByInstanceIDRow, error) {
@@ -6018,6 +6167,13 @@ func (q *querier) GetWorkspacesForWorkspaceMetrics(ctx context.Context) ([]datab
 		return nil, err
 	}
 	return q.db.GetWorkspacesForWorkspaceMetrics(ctx)
+}
+
+func (q *querier) GrantWorkspaceBuildAdmission(ctx context.Context, arg database.GrantWorkspaceBuildAdmissionParams) (database.WorkspaceBuildAdmission, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.WorkspaceBuildAdmission{}, err
+	}
+	return q.db.GrantWorkspaceBuildAdmission(ctx, arg)
 }
 
 func (q *querier) HasTemplateVersionsUsingCachedModuleFileInOrg(ctx context.Context, arg database.HasTemplateVersionsUsingCachedModuleFileInOrgParams) (bool, error) {
@@ -6642,6 +6798,18 @@ func (q *querier) InsertWorkspace(ctx context.Context, arg database.InsertWorksp
 	return insert(q.log, q.auth, obj, q.db.InsertWorkspace)(ctx, arg)
 }
 
+func (q *querier) InsertWorkspaceAdmissionEntitlement(ctx context.Context, arg database.InsertWorkspaceAdmissionEntitlementParams) (database.WorkspaceAdmissionEntitlement, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.WorkspaceAdmissionEntitlement{}, err
+	}
+	return q.db.InsertWorkspaceAdmissionEntitlement(ctx, arg)
+}
+
+func (q *querier) InsertWorkspaceAdmissionStopOperation(ctx context.Context, arg database.InsertWorkspaceAdmissionStopOperationParams) (database.WorkspaceAdmissionStopOperation, error) {
+	obj := rbac.ResourceWorkspaceAdmission.WithID(arg.OperationID).InOrg(arg.OrganizationID)
+	return insert(q.log, q.auth, obj, q.db.InsertWorkspaceAdmissionStopOperation)(ctx, arg)
+}
+
 func (q *querier) InsertWorkspaceAgent(ctx context.Context, arg database.InsertWorkspaceAgentParams) (database.WorkspaceAgent, error) {
 	// NOTE(DanielleMaywood):
 	// Currently, the only way to link a Resource back to a Workspace is by following this chain:
@@ -6765,6 +6933,11 @@ func (q *querier) InsertWorkspaceBuild(ctx context.Context, arg database.InsertW
 	}
 
 	return q.db.InsertWorkspaceBuild(ctx, arg)
+}
+
+func (q *querier) InsertWorkspaceBuildAdmission(ctx context.Context, arg database.InsertWorkspaceBuildAdmissionParams) (database.WorkspaceBuildAdmission, error) {
+	obj := rbac.ResourceWorkspaceAdmission.WithID(arg.JobID).InOrg(arg.OrganizationID)
+	return insert(q.log, q.auth, obj, q.db.InsertWorkspaceBuildAdmission)(ctx, arg)
 }
 
 func (q *querier) InsertWorkspaceBuildOrchestration(ctx context.Context, arg database.InsertWorkspaceBuildOrchestrationParams) (database.WorkspaceBuildOrchestration, error) {
@@ -7250,6 +7423,13 @@ func (q *querier) ReorderChatQueuedMessageToHead(ctx context.Context, arg databa
 	}
 	_ = chat
 	return q.db.ReorderChatQueuedMessageToHead(ctx, arg)
+}
+
+func (q *querier) RequeueWorkspaceBuildAdmission(ctx context.Context, arg database.RequeueWorkspaceBuildAdmissionParams) (database.WorkspaceBuildAdmission, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.WorkspaceBuildAdmission{}, err
+	}
+	return q.db.RequeueWorkspaceBuildAdmission(ctx, arg)
 }
 
 func (q *querier) RevokeDBCryptKey(ctx context.Context, activeKeyDigest string) error {
@@ -7857,6 +8037,18 @@ func (q *querier) UpdateMCPServerUserTokenFromRefresh(ctx context.Context, arg d
 	return fetchAndQuery(q.log, q.auth, policy.ActionUpdatePersonal, fetch, q.db.UpdateMCPServerUserTokenFromRefresh)(ctx, arg)
 }
 
+func (q *querier) UpdateManagedWorkspaceBuildJobWithCancelByID(ctx context.Context, arg database.UpdateManagedWorkspaceBuildJobWithCancelByIDParams) (int64, error) {
+	// The query only matches workspace build jobs of managed templates, so
+	// the admission service cannot cancel unrelated jobs through it.
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return 0, err
+	}
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceProvisionerJobs); err != nil {
+		return 0, err
+	}
+	return q.db.UpdateManagedWorkspaceBuildJobWithCancelByID(ctx, arg)
+}
+
 func (q *querier) UpdateMemberRoles(ctx context.Context, arg database.UpdateMemberRolesParams) (database.OrganizationMember, error) {
 	// Authorized fetch will check that the actor has read access to the org member since the org member is returned.
 	member, err := database.ExpectOne(q.OrganizationMembers(ctx, database.OrganizationMembersParams{
@@ -7997,6 +8189,13 @@ func (q *querier) UpdateOrganizationWorkspaceSharingSettings(ctx context.Context
 		return q.db.GetOrganizationByID(ctx, arg.ID)
 	}
 	return updateWithReturn(q.log, q.auth, fetch, q.db.UpdateOrganizationWorkspaceSharingSettings)(ctx, arg)
+}
+
+func (q *querier) UpdatePendingWorkspaceBuildAdmissionStatus(ctx context.Context, arg database.UpdatePendingWorkspaceBuildAdmissionStatusParams) (database.WorkspaceBuildAdmission, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.WorkspaceBuildAdmission{}, err
+	}
+	return q.db.UpdatePendingWorkspaceBuildAdmissionStatus(ctx, arg)
 }
 
 func (q *querier) UpdatePrebuildProvisionerJobWithCancel(ctx context.Context, arg database.UpdatePrebuildProvisionerJobWithCancelParams) ([]database.UpdatePrebuildProvisionerJobWithCancelRow, error) {
@@ -8834,6 +9033,13 @@ func (q *querier) UpdateWorkspaceAutostart(ctx context.Context, arg database.Upd
 	return update(q.log, q.auth, fetch, q.db.UpdateWorkspaceAutostart)(ctx, arg)
 }
 
+func (q *querier) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg database.UpdateWorkspaceBuildAdmissionDisplaysParams) ([]uuid.UUID, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return nil, err
+	}
+	return q.db.UpdateWorkspaceBuildAdmissionDisplays(ctx, arg)
+}
+
 // UpdateWorkspaceBuildCostByID is used by the provisioning system to update the cost of a workspace build.
 func (q *querier) UpdateWorkspaceBuildCostByID(ctx context.Context, arg database.UpdateWorkspaceBuildCostByIDParams) error {
 	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceSystem); err != nil {
@@ -9395,6 +9601,13 @@ func (q *querier) UpsertWebpushVAPIDKeys(ctx context.Context, arg database.Upser
 		return err
 	}
 	return q.db.UpsertWebpushVAPIDKeys(ctx, arg)
+}
+
+func (q *querier) UpsertWorkspaceAdmissionTemplate(ctx context.Context, arg database.UpsertWorkspaceAdmissionTemplateParams) (database.WorkspaceAdmissionTemplate, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.WorkspaceAdmissionTemplate{}, err
+	}
+	return q.db.UpsertWorkspaceAdmissionTemplate(ctx, arg)
 }
 
 func (q *querier) UpsertWorkspaceAgentContextResource(ctx context.Context, arg database.UpsertWorkspaceAgentContextResourceParams) (database.WorkspaceAgentContextResource, error) {

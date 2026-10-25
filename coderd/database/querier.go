@@ -38,6 +38,18 @@ type sqlcQuerier interface {
 	// SKIP LOCKED is used to jump over locked rows. This prevents
 	// multiple provisioners from acquiring the same jobs. See:
 	// https://www.postgresql.org/docs/9.5/sql-select.html#SQL-FOR-UPDATE-SHARE
+	//
+	// A managed START is a workspace START build whose workspace template is
+	// listed in workspace_admission_templates. A managed START is only eligible
+	// while a granted, unexpired admission that matches the build exists. A
+	// missing, waiting, expired, mismatched or ended admission makes the job
+	// ineligible. Acquiring a managed START marks its admission as acquired in
+	// the same statement. If the admission changed after the candidate was
+	// selected (for example a concurrent revoke), the admission update matches no
+	// row and the job is not acquired.
+	//
+	// STOP and DELETE builds release capacity, so they are acquired before other
+	// jobs. Human-initiated jobs are then prioritized over prebuilds.
 	AcquireProvisionerJob(ctx context.Context, arg AcquireProvisionerJobParams) (ProvisionerJob, error)
 	AcquireStaleChatDiffStatuses(ctx context.Context, limitVal int32) ([]AcquireStaleChatDiffStatusesRow, error)
 	// Bumps the workspace deadline by the template's configured "activity_bump"
@@ -241,6 +253,8 @@ type sqlcQuerier interface {
 	DeleteWebpushSubscriptions(ctx context.Context, ids []uuid.UUID) error
 	DeleteWorkspaceACLByID(ctx context.Context, id uuid.UUID) error
 	DeleteWorkspaceACLsByOrganization(ctx context.Context, arg DeleteWorkspaceACLsByOrganizationParams) error
+	DeleteWorkspaceAdmissionEntitlementsByUserID(ctx context.Context, userID uuid.UUID) error
+	DeleteWorkspaceAdmissionTemplateByTemplateID(ctx context.Context, templateID uuid.UUID) (int64, error)
 	DeleteWorkspaceAgentPortShare(ctx context.Context, arg DeleteWorkspaceAgentPortShareParams) error
 	DeleteWorkspaceAgentPortSharesByTemplate(ctx context.Context, templateID uuid.UUID) error
 	// Soft-deletes a single sub-agent (a child agent such as a devcontainer
@@ -781,6 +795,11 @@ type sqlcQuerier interface {
 	GetProvisionerJobsByIDsWithQueuePosition(ctx context.Context, arg GetProvisionerJobsByIDsWithQueuePositionParams) ([]GetProvisionerJobsByIDsWithQueuePositionRow, error)
 	GetProvisionerJobsByOrganizationAndStatusWithQueuePositionAndProvisioner(ctx context.Context, arg GetProvisionerJobsByOrganizationAndStatusWithQueuePositionAndProvisionerParams) ([]GetProvisionerJobsByOrganizationAndStatusWithQueuePositionAndProvisionerRow, error)
 	GetProvisionerJobsCreatedAfter(ctx context.Context, createdAt time.Time) ([]ProvisionerJob, error)
+	// A pending managed START whose admission is waiting is a valid capacity wait
+	// and is never reaped. A granted managed START measures its pending time from
+	// the later of the last job update and the grant, so a job that waited for
+	// capacity is not reaped right after it is granted. Keep in sync with the
+	// post-lock recheck in coderd/jobreaper.
 	// To avoid repeatedly attempting to reap the same jobs, we randomly order and limit to @max_jobs.
 	GetProvisionerJobsToBeReaped(ctx context.Context, arg GetProvisionerJobsToBeReapedParams) ([]ProvisionerJob, error)
 	GetProvisionerKeyByHashedSecret(ctx context.Context, hashedSecret []byte) (ProvisionerKey, error)
@@ -1004,6 +1023,21 @@ type sqlcQuerier interface {
 	GetWebpushSubscriptionsByUserID(ctx context.Context, userID uuid.UUID) ([]WebpushSubscription, error)
 	GetWebpushVAPIDKeys(ctx context.Context) (GetWebpushVAPIDKeysRow, error)
 	GetWorkspaceACLByID(ctx context.Context, id uuid.UUID) (GetWorkspaceACLByIDRow, error)
+	GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID(ctx context.Context, arg GetWorkspaceAdmissionEntitlementByUserIDAndTemplateIDParams) (WorkspaceAdmissionEntitlement, error)
+	GetWorkspaceAdmissionEntitlementsByUserID(ctx context.Context, userID uuid.UUID) ([]WorkspaceAdmissionEntitlement, error)
+	// Reports whether a provisioner job is a managed START (a workspace START
+	// build whose workspace template is managed by workspace admission) and the
+	// admission state of that job, if any.
+	GetWorkspaceAdmissionStateByJobID(ctx context.Context, jobID uuid.UUID) (GetWorkspaceAdmissionStateByJobIDRow, error)
+	GetWorkspaceAdmissionStopOperationByOperationID(ctx context.Context, operationID uuid.UUID) (WorkspaceAdmissionStopOperation, error)
+	GetWorkspaceAdmissionTemplateByTemplateID(ctx context.Context, templateID uuid.UUID) (WorkspaceAdmissionTemplate, error)
+	GetWorkspaceAdmissionTemplates(ctx context.Context) ([]WorkspaceAdmissionTemplate, error)
+	// Lists users with their OIDC link for the admission service. A zero user ID
+	// lists every user.
+	GetWorkspaceAdmissionUsers(ctx context.Context, userID uuid.UUID) ([]GetWorkspaceAdmissionUsersRow, error)
+	// Lists workspaces of managed templates with their latest build. A zero
+	// workspace ID lists every managed workspace.
+	GetWorkspaceAdmissionWorkspaces(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceAdmissionWorkspacesRow, error)
 	GetWorkspaceAgentAndWorkspaceByID(ctx context.Context, id uuid.UUID) (GetWorkspaceAgentAndWorkspaceByIDRow, error)
 	GetWorkspaceAgentByID(ctx context.Context, id uuid.UUID) (WorkspaceAgent, error)
 	GetWorkspaceAgentDevcontainersByAgentID(ctx context.Context, workspaceAgentID uuid.UUID) ([]WorkspaceAgentDevcontainer, error)
@@ -1032,6 +1066,16 @@ type sqlcQuerier interface {
 	GetWorkspaceAppsByAgentID(ctx context.Context, agentID uuid.UUID) ([]WorkspaceApp, error)
 	GetWorkspaceAppsByAgentIDs(ctx context.Context, ids []uuid.UUID) ([]WorkspaceApp, error)
 	GetWorkspaceAppsCreatedAfter(ctx context.Context, createdAt time.Time) ([]WorkspaceApp, error)
+	GetWorkspaceBuildAdmissionByJobID(ctx context.Context, jobID uuid.UUID) (WorkspaceBuildAdmission, error)
+	GetWorkspaceBuildAdmissionRequestByJobID(ctx context.Context, jobID uuid.UUID) (GetWorkspaceBuildAdmissionRequestByJobIDRow, error)
+	// Lists admission requests in stable queue order for the admission service.
+	// The cursor is the (queued_at, job_id) pair of the last row of the previous
+	// page.
+	GetWorkspaceBuildAdmissionRequests(ctx context.Context, arg GetWorkspaceBuildAdmissionRequestsParams) ([]GetWorkspaceBuildAdmissionRequestsRow, error)
+	GetWorkspaceBuildAdmissionsByBuildIDs(ctx context.Context, buildIds []uuid.UUID) ([]WorkspaceBuildAdmission, error)
+	// Returns the latest admission update time. The admission service uses it as
+	// a change cursor for long polling.
+	GetWorkspaceBuildAdmissionsWatermark(ctx context.Context) (time.Time, error)
 	GetWorkspaceBuildAgentsByInstanceID(ctx context.Context, authInstanceID string) ([]GetWorkspaceBuildAgentsByInstanceIDRow, error)
 	GetWorkspaceBuildByID(ctx context.Context, id uuid.UUID) (WorkspaceBuild, error)
 	GetWorkspaceBuildByJobID(ctx context.Context, jobID uuid.UUID) (WorkspaceBuild, error)
@@ -1085,6 +1129,10 @@ type sqlcQuerier interface {
 	// reminder notification (which only stamps a marker, no transition).
 	GetWorkspacesEligibleForLifecycleAction(ctx context.Context, now time.Time) ([]GetWorkspacesEligibleForLifecycleActionRow, error)
 	GetWorkspacesForWorkspaceMetrics(ctx context.Context) ([]GetWorkspacesForWorkspaceMetricsRow, error)
+	// Grants a waiting admission, or refreshes an existing grant. granted_at keeps
+	// the time of the first grant so a refresh does not extend the job reaper
+	// deadline. Callers hold the provisioner job row lock.
+	GrantWorkspaceBuildAdmission(ctx context.Context, arg GrantWorkspaceBuildAdmissionParams) (WorkspaceBuildAdmission, error)
 	// Reports whether the given file is referenced as cached module files by any
 	// template version in the given organization. Used to authorize provisioner
 	// module-file downloads so a daemon cannot read another organization's cached
@@ -1217,6 +1265,9 @@ type sqlcQuerier interface {
 	// on iOS, where the browser may keep the same endpoint with rotated keys.
 	InsertWebpushSubscription(ctx context.Context, arg InsertWebpushSubscriptionParams) (WebpushSubscription, error)
 	InsertWorkspace(ctx context.Context, arg InsertWorkspaceParams) (WorkspaceTable, error)
+	// Returns no rows when the template is not managed by workspace admission.
+	InsertWorkspaceAdmissionEntitlement(ctx context.Context, arg InsertWorkspaceAdmissionEntitlementParams) (WorkspaceAdmissionEntitlement, error)
+	InsertWorkspaceAdmissionStopOperation(ctx context.Context, arg InsertWorkspaceAdmissionStopOperationParams) (WorkspaceAdmissionStopOperation, error)
 	InsertWorkspaceAgent(ctx context.Context, arg InsertWorkspaceAgentParams) (WorkspaceAgent, error)
 	InsertWorkspaceAgentDevcontainers(ctx context.Context, arg InsertWorkspaceAgentDevcontainersParams) ([]WorkspaceAgentDevcontainer, error)
 	InsertWorkspaceAgentLogSources(ctx context.Context, arg InsertWorkspaceAgentLogSourcesParams) ([]WorkspaceAgentLogSource, error)
@@ -1228,6 +1279,9 @@ type sqlcQuerier interface {
 	InsertWorkspaceAppStats(ctx context.Context, arg InsertWorkspaceAppStatsParams) error
 	InsertWorkspaceAppStatus(ctx context.Context, arg InsertWorkspaceAppStatusParams) (WorkspaceAppStatus, error)
 	InsertWorkspaceBuild(ctx context.Context, arg InsertWorkspaceBuildParams) error
+	// Records that a START build on a managed template waits for capacity. Every
+	// admission starts as waiting; only the admission service grants it.
+	InsertWorkspaceBuildAdmission(ctx context.Context, arg InsertWorkspaceBuildAdmissionParams) (WorkspaceBuildAdmission, error)
 	InsertWorkspaceBuildOrchestration(ctx context.Context, arg InsertWorkspaceBuildOrchestrationParams) (WorkspaceBuildOrchestration, error)
 	InsertWorkspaceBuildParameters(ctx context.Context, arg InsertWorkspaceBuildParametersParams) error
 	InsertWorkspaceModule(ctx context.Context, arg InsertWorkspaceModuleParams) (WorkspaceModule, error)
@@ -1365,6 +1419,10 @@ type sqlcQuerier interface {
 	// Sets the target queued message's position to one less than the
 	// current minimum position for that chat, moving it to the head.
 	ReorderChatQueuedMessageToHead(ctx context.Context, arg ReorderChatQueuedMessageToHeadParams) (int64, error)
+	// Returns a waiting or granted admission to the capacity queue and clears the
+	// grant. Callers hold the provisioner job row lock and have verified that no
+	// provisioner acquired the job.
+	RequeueWorkspaceBuildAdmission(ctx context.Context, arg RequeueWorkspaceBuildAdmissionParams) (WorkspaceBuildAdmission, error)
 	RevokeDBCryptKey(ctx context.Context, activeKeyDigest string) error
 	// Note that this selects from the CTE, not the original table. The CTE is named
 	// the same as the original table to trick sqlc into reusing the existing struct
@@ -1536,6 +1594,10 @@ type sqlcQuerier interface {
 	// Refresh persistence must not recreate a token deleted by disconnect.
 	// The optimistic lock also prevents stale refreshes from replacing newer tokens.
 	UpdateMCPServerUserTokenFromRefresh(ctx context.Context, arg UpdateMCPServerUserTokenFromRefreshParams) (MCPServerUserToken, error)
+	// Cancels a workspace build job of a managed template on behalf of the
+	// admission service. Mirrors UpdateProvisionerJobWithCancelByID but only
+	// matches jobs of managed workspaces.
+	UpdateManagedWorkspaceBuildJobWithCancelByID(ctx context.Context, arg UpdateManagedWorkspaceBuildJobWithCancelByIDParams) (int64, error)
 	UpdateMemberRoles(ctx context.Context, arg UpdateMemberRolesParams) (OrganizationMember, error)
 	UpdateMemoryResourceMonitor(ctx context.Context, arg UpdateMemoryResourceMonitorParams) error
 	UpdateNotificationTemplateMethodByID(ctx context.Context, arg UpdateNotificationTemplateMethodByIDParams) (NotificationTemplate, error)
@@ -1544,6 +1606,10 @@ type sqlcQuerier interface {
 	UpdateOrganization(ctx context.Context, arg UpdateOrganizationParams) (Organization, error)
 	UpdateOrganizationDeletedByID(ctx context.Context, arg UpdateOrganizationDeletedByIDParams) error
 	UpdateOrganizationWorkspaceSharingSettings(ctx context.Context, arg UpdateOrganizationWorkspaceSharingSettingsParams) (Organization, error)
+	// Ends an admission that no provisioner acquired, as rejected, canceled or
+	// revoked. Returns no rows when the admission does not exist, was acquired or
+	// already ended.
+	UpdatePendingWorkspaceBuildAdmissionStatus(ctx context.Context, arg UpdatePendingWorkspaceBuildAdmissionStatusParams) (WorkspaceBuildAdmission, error)
 	// Cancels all pending provisioner jobs for prebuilt workspaces on a specific preset from an
 	// inactive template version.
 	// This is an optimization to clean up stale pending jobs.
@@ -1617,6 +1683,9 @@ type sqlcQuerier interface {
 	UpdateWorkspaceAppHealthByID(ctx context.Context, arg UpdateWorkspaceAppHealthByIDParams) error
 	UpdateWorkspaceAutomaticUpdates(ctx context.Context, arg UpdateWorkspaceAutomaticUpdatesParams) error
 	UpdateWorkspaceAutostart(ctx context.Context, arg UpdateWorkspaceAutostartParams) error
+	// Updates the waiting reason and capacity queue position shown to users.
+	// Only waiting rows change. A queue position of -1 clears the position.
+	UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg UpdateWorkspaceBuildAdmissionDisplaysParams) ([]uuid.UUID, error)
 	UpdateWorkspaceBuildCostByID(ctx context.Context, arg UpdateWorkspaceBuildCostByIDParams) error
 	UpdateWorkspaceBuildDeadlineByID(ctx context.Context, arg UpdateWorkspaceBuildDeadlineByIDParams) error
 	UpdateWorkspaceBuildFlagsByID(ctx context.Context, arg UpdateWorkspaceBuildFlagsByIDParams) error
@@ -1720,6 +1789,11 @@ type sqlcQuerier interface {
 	UpsertUserAIProviderKey(ctx context.Context, arg UpsertUserAIProviderKeyParams) (UserAIProviderKey, error)
 	UpsertUserChatDebugLoggingEnabled(ctx context.Context, arg UpsertUserChatDebugLoggingEnabledParams) error
 	UpsertWebpushVAPIDKeys(ctx context.Context, arg UpsertWebpushVAPIDKeysParams) error
+	// Marks a template as managed by workspace admission. The organization is
+	// copied from the template so callers cannot attach a template to another
+	// organization. Returns no rows when the template does not exist or is
+	// deleted.
+	UpsertWorkspaceAdmissionTemplate(ctx context.Context, arg UpsertWorkspaceAdmissionTemplateParams) (WorkspaceAdmissionTemplate, error)
 	UpsertWorkspaceAgentContextResource(ctx context.Context, arg UpsertWorkspaceAgentContextResourceParams) (WorkspaceAgentContextResource, error)
 	UpsertWorkspaceAgentContextSnapshot(ctx context.Context, arg UpsertWorkspaceAgentContextSnapshotParams) (WorkspaceAgentContextSnapshot, error)
 	UpsertWorkspaceAgentPortShare(ctx context.Context, arg UpsertWorkspaceAgentPortShareParams) (WorkspaceAgentPortShare, error)

@@ -167,6 +167,15 @@ var RBACPermissions = map[string]PermissionDefinition{
 			ActionDelete: "delete a workspace build orchestration",
 		},
 	},
+	"workspace_admission": {
+		Actions: map[Action]ActionDefinition{
+			ActionCreate: "create a workspace admission record",
+			ActionRead:   "read workspace admission records, managed templates and entitlements",
+			ActionUpdate: "update workspace admission records, managed templates and entitlements",
+			ActionDelete: "delete managed templates and entitlements",
+		},
+		Comment: "Workspace admission state is managed by the restricted admission service and internal system subjects.",
+	},
 	"license": {
 		Actions: map[Action]ActionDefinition{
 			ActionCreate: "create a license",

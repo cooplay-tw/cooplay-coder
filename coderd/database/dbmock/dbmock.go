@@ -1671,6 +1671,35 @@ func (mr *MockStoreMockRecorder) DeleteWorkspaceACLsByOrganization(ctx, arg any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkspaceACLsByOrganization", reflect.TypeOf((*MockStore)(nil).DeleteWorkspaceACLsByOrganization), ctx, arg)
 }
 
+// DeleteWorkspaceAdmissionEntitlementsByUserID mocks base method.
+func (m *MockStore) DeleteWorkspaceAdmissionEntitlementsByUserID(ctx context.Context, userID uuid.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkspaceAdmissionEntitlementsByUserID", ctx, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteWorkspaceAdmissionEntitlementsByUserID indicates an expected call of DeleteWorkspaceAdmissionEntitlementsByUserID.
+func (mr *MockStoreMockRecorder) DeleteWorkspaceAdmissionEntitlementsByUserID(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkspaceAdmissionEntitlementsByUserID", reflect.TypeOf((*MockStore)(nil).DeleteWorkspaceAdmissionEntitlementsByUserID), ctx, userID)
+}
+
+// DeleteWorkspaceAdmissionTemplateByTemplateID mocks base method.
+func (m *MockStore) DeleteWorkspaceAdmissionTemplateByTemplateID(ctx context.Context, templateID uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteWorkspaceAdmissionTemplateByTemplateID", ctx, templateID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeleteWorkspaceAdmissionTemplateByTemplateID indicates an expected call of DeleteWorkspaceAdmissionTemplateByTemplateID.
+func (mr *MockStoreMockRecorder) DeleteWorkspaceAdmissionTemplateByTemplateID(ctx, templateID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteWorkspaceAdmissionTemplateByTemplateID", reflect.TypeOf((*MockStore)(nil).DeleteWorkspaceAdmissionTemplateByTemplateID), ctx, templateID)
+}
+
 // DeleteWorkspaceAgentPortShare mocks base method.
 func (m *MockStore) DeleteWorkspaceAgentPortShare(ctx context.Context, arg database.DeleteWorkspaceAgentPortShareParams) error {
 	m.ctrl.T.Helper()
@@ -6659,6 +6688,126 @@ func (mr *MockStoreMockRecorder) GetWorkspaceACLByID(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceACLByID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceACLByID), ctx, id)
 }
 
+// GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID mocks base method.
+func (m *MockStore) GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID(ctx context.Context, arg database.GetWorkspaceAdmissionEntitlementByUserIDAndTemplateIDParams) (database.WorkspaceAdmissionEntitlement, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceAdmissionEntitlement)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID indicates an expected call of GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID.
+func (mr *MockStoreMockRecorder) GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID), ctx, arg)
+}
+
+// GetWorkspaceAdmissionEntitlementsByUserID mocks base method.
+func (m *MockStore) GetWorkspaceAdmissionEntitlementsByUserID(ctx context.Context, userID uuid.UUID) ([]database.WorkspaceAdmissionEntitlement, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceAdmissionEntitlementsByUserID", ctx, userID)
+	ret0, _ := ret[0].([]database.WorkspaceAdmissionEntitlement)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceAdmissionEntitlementsByUserID indicates an expected call of GetWorkspaceAdmissionEntitlementsByUserID.
+func (mr *MockStoreMockRecorder) GetWorkspaceAdmissionEntitlementsByUserID(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceAdmissionEntitlementsByUserID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceAdmissionEntitlementsByUserID), ctx, userID)
+}
+
+// GetWorkspaceAdmissionStateByJobID mocks base method.
+func (m *MockStore) GetWorkspaceAdmissionStateByJobID(ctx context.Context, jobID uuid.UUID) (database.GetWorkspaceAdmissionStateByJobIDRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceAdmissionStateByJobID", ctx, jobID)
+	ret0, _ := ret[0].(database.GetWorkspaceAdmissionStateByJobIDRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceAdmissionStateByJobID indicates an expected call of GetWorkspaceAdmissionStateByJobID.
+func (mr *MockStoreMockRecorder) GetWorkspaceAdmissionStateByJobID(ctx, jobID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceAdmissionStateByJobID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceAdmissionStateByJobID), ctx, jobID)
+}
+
+// GetWorkspaceAdmissionStopOperationByOperationID mocks base method.
+func (m *MockStore) GetWorkspaceAdmissionStopOperationByOperationID(ctx context.Context, operationID uuid.UUID) (database.WorkspaceAdmissionStopOperation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceAdmissionStopOperationByOperationID", ctx, operationID)
+	ret0, _ := ret[0].(database.WorkspaceAdmissionStopOperation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceAdmissionStopOperationByOperationID indicates an expected call of GetWorkspaceAdmissionStopOperationByOperationID.
+func (mr *MockStoreMockRecorder) GetWorkspaceAdmissionStopOperationByOperationID(ctx, operationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceAdmissionStopOperationByOperationID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceAdmissionStopOperationByOperationID), ctx, operationID)
+}
+
+// GetWorkspaceAdmissionTemplateByTemplateID mocks base method.
+func (m *MockStore) GetWorkspaceAdmissionTemplateByTemplateID(ctx context.Context, templateID uuid.UUID) (database.WorkspaceAdmissionTemplate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceAdmissionTemplateByTemplateID", ctx, templateID)
+	ret0, _ := ret[0].(database.WorkspaceAdmissionTemplate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceAdmissionTemplateByTemplateID indicates an expected call of GetWorkspaceAdmissionTemplateByTemplateID.
+func (mr *MockStoreMockRecorder) GetWorkspaceAdmissionTemplateByTemplateID(ctx, templateID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceAdmissionTemplateByTemplateID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceAdmissionTemplateByTemplateID), ctx, templateID)
+}
+
+// GetWorkspaceAdmissionTemplates mocks base method.
+func (m *MockStore) GetWorkspaceAdmissionTemplates(ctx context.Context) ([]database.WorkspaceAdmissionTemplate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceAdmissionTemplates", ctx)
+	ret0, _ := ret[0].([]database.WorkspaceAdmissionTemplate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceAdmissionTemplates indicates an expected call of GetWorkspaceAdmissionTemplates.
+func (mr *MockStoreMockRecorder) GetWorkspaceAdmissionTemplates(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceAdmissionTemplates", reflect.TypeOf((*MockStore)(nil).GetWorkspaceAdmissionTemplates), ctx)
+}
+
+// GetWorkspaceAdmissionUsers mocks base method.
+func (m *MockStore) GetWorkspaceAdmissionUsers(ctx context.Context, userID uuid.UUID) ([]database.GetWorkspaceAdmissionUsersRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceAdmissionUsers", ctx, userID)
+	ret0, _ := ret[0].([]database.GetWorkspaceAdmissionUsersRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceAdmissionUsers indicates an expected call of GetWorkspaceAdmissionUsers.
+func (mr *MockStoreMockRecorder) GetWorkspaceAdmissionUsers(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceAdmissionUsers", reflect.TypeOf((*MockStore)(nil).GetWorkspaceAdmissionUsers), ctx, userID)
+}
+
+// GetWorkspaceAdmissionWorkspaces mocks base method.
+func (m *MockStore) GetWorkspaceAdmissionWorkspaces(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceAdmissionWorkspacesRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceAdmissionWorkspaces", ctx, workspaceID)
+	ret0, _ := ret[0].([]database.GetWorkspaceAdmissionWorkspacesRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceAdmissionWorkspaces indicates an expected call of GetWorkspaceAdmissionWorkspaces.
+func (mr *MockStoreMockRecorder) GetWorkspaceAdmissionWorkspaces(ctx, workspaceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceAdmissionWorkspaces", reflect.TypeOf((*MockStore)(nil).GetWorkspaceAdmissionWorkspaces), ctx, workspaceID)
+}
+
 // GetWorkspaceAgentAndWorkspaceByID mocks base method.
 func (m *MockStore) GetWorkspaceAgentAndWorkspaceByID(ctx context.Context, id uuid.UUID) (database.GetWorkspaceAgentAndWorkspaceByIDRow, error) {
 	m.ctrl.T.Helper()
@@ -7062,6 +7211,81 @@ func (m *MockStore) GetWorkspaceAppsCreatedAfter(ctx context.Context, createdAt 
 func (mr *MockStoreMockRecorder) GetWorkspaceAppsCreatedAfter(ctx, createdAt any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceAppsCreatedAfter", reflect.TypeOf((*MockStore)(nil).GetWorkspaceAppsCreatedAfter), ctx, createdAt)
+}
+
+// GetWorkspaceBuildAdmissionByJobID mocks base method.
+func (m *MockStore) GetWorkspaceBuildAdmissionByJobID(ctx context.Context, jobID uuid.UUID) (database.WorkspaceBuildAdmission, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceBuildAdmissionByJobID", ctx, jobID)
+	ret0, _ := ret[0].(database.WorkspaceBuildAdmission)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceBuildAdmissionByJobID indicates an expected call of GetWorkspaceBuildAdmissionByJobID.
+func (mr *MockStoreMockRecorder) GetWorkspaceBuildAdmissionByJobID(ctx, jobID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceBuildAdmissionByJobID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceBuildAdmissionByJobID), ctx, jobID)
+}
+
+// GetWorkspaceBuildAdmissionRequestByJobID mocks base method.
+func (m *MockStore) GetWorkspaceBuildAdmissionRequestByJobID(ctx context.Context, jobID uuid.UUID) (database.GetWorkspaceBuildAdmissionRequestByJobIDRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceBuildAdmissionRequestByJobID", ctx, jobID)
+	ret0, _ := ret[0].(database.GetWorkspaceBuildAdmissionRequestByJobIDRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceBuildAdmissionRequestByJobID indicates an expected call of GetWorkspaceBuildAdmissionRequestByJobID.
+func (mr *MockStoreMockRecorder) GetWorkspaceBuildAdmissionRequestByJobID(ctx, jobID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceBuildAdmissionRequestByJobID", reflect.TypeOf((*MockStore)(nil).GetWorkspaceBuildAdmissionRequestByJobID), ctx, jobID)
+}
+
+// GetWorkspaceBuildAdmissionRequests mocks base method.
+func (m *MockStore) GetWorkspaceBuildAdmissionRequests(ctx context.Context, arg database.GetWorkspaceBuildAdmissionRequestsParams) ([]database.GetWorkspaceBuildAdmissionRequestsRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceBuildAdmissionRequests", ctx, arg)
+	ret0, _ := ret[0].([]database.GetWorkspaceBuildAdmissionRequestsRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceBuildAdmissionRequests indicates an expected call of GetWorkspaceBuildAdmissionRequests.
+func (mr *MockStoreMockRecorder) GetWorkspaceBuildAdmissionRequests(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceBuildAdmissionRequests", reflect.TypeOf((*MockStore)(nil).GetWorkspaceBuildAdmissionRequests), ctx, arg)
+}
+
+// GetWorkspaceBuildAdmissionsByBuildIDs mocks base method.
+func (m *MockStore) GetWorkspaceBuildAdmissionsByBuildIDs(ctx context.Context, buildIds []uuid.UUID) ([]database.WorkspaceBuildAdmission, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceBuildAdmissionsByBuildIDs", ctx, buildIds)
+	ret0, _ := ret[0].([]database.WorkspaceBuildAdmission)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceBuildAdmissionsByBuildIDs indicates an expected call of GetWorkspaceBuildAdmissionsByBuildIDs.
+func (mr *MockStoreMockRecorder) GetWorkspaceBuildAdmissionsByBuildIDs(ctx, buildIds any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceBuildAdmissionsByBuildIDs", reflect.TypeOf((*MockStore)(nil).GetWorkspaceBuildAdmissionsByBuildIDs), ctx, buildIds)
+}
+
+// GetWorkspaceBuildAdmissionsWatermark mocks base method.
+func (m *MockStore) GetWorkspaceBuildAdmissionsWatermark(ctx context.Context) (time.Time, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceBuildAdmissionsWatermark", ctx)
+	ret0, _ := ret[0].(time.Time)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceBuildAdmissionsWatermark indicates an expected call of GetWorkspaceBuildAdmissionsWatermark.
+func (mr *MockStoreMockRecorder) GetWorkspaceBuildAdmissionsWatermark(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceBuildAdmissionsWatermark", reflect.TypeOf((*MockStore)(nil).GetWorkspaceBuildAdmissionsWatermark), ctx)
 }
 
 // GetWorkspaceBuildAgentsByInstanceID mocks base method.
@@ -7557,6 +7781,21 @@ func (m *MockStore) GetWorkspacesForWorkspaceMetrics(ctx context.Context) ([]dat
 func (mr *MockStoreMockRecorder) GetWorkspacesForWorkspaceMetrics(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspacesForWorkspaceMetrics", reflect.TypeOf((*MockStore)(nil).GetWorkspacesForWorkspaceMetrics), ctx)
+}
+
+// GrantWorkspaceBuildAdmission mocks base method.
+func (m *MockStore) GrantWorkspaceBuildAdmission(ctx context.Context, arg database.GrantWorkspaceBuildAdmissionParams) (database.WorkspaceBuildAdmission, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GrantWorkspaceBuildAdmission", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceBuildAdmission)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GrantWorkspaceBuildAdmission indicates an expected call of GrantWorkspaceBuildAdmission.
+func (mr *MockStoreMockRecorder) GrantWorkspaceBuildAdmission(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GrantWorkspaceBuildAdmission", reflect.TypeOf((*MockStore)(nil).GrantWorkspaceBuildAdmission), ctx, arg)
 }
 
 // HasTemplateVersionsUsingCachedModuleFileInOrg mocks base method.
@@ -8642,6 +8881,36 @@ func (mr *MockStoreMockRecorder) InsertWorkspace(ctx, arg any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspace", reflect.TypeOf((*MockStore)(nil).InsertWorkspace), ctx, arg)
 }
 
+// InsertWorkspaceAdmissionEntitlement mocks base method.
+func (m *MockStore) InsertWorkspaceAdmissionEntitlement(ctx context.Context, arg database.InsertWorkspaceAdmissionEntitlementParams) (database.WorkspaceAdmissionEntitlement, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertWorkspaceAdmissionEntitlement", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceAdmissionEntitlement)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InsertWorkspaceAdmissionEntitlement indicates an expected call of InsertWorkspaceAdmissionEntitlement.
+func (mr *MockStoreMockRecorder) InsertWorkspaceAdmissionEntitlement(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceAdmissionEntitlement", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceAdmissionEntitlement), ctx, arg)
+}
+
+// InsertWorkspaceAdmissionStopOperation mocks base method.
+func (m *MockStore) InsertWorkspaceAdmissionStopOperation(ctx context.Context, arg database.InsertWorkspaceAdmissionStopOperationParams) (database.WorkspaceAdmissionStopOperation, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertWorkspaceAdmissionStopOperation", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceAdmissionStopOperation)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InsertWorkspaceAdmissionStopOperation indicates an expected call of InsertWorkspaceAdmissionStopOperation.
+func (mr *MockStoreMockRecorder) InsertWorkspaceAdmissionStopOperation(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceAdmissionStopOperation", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceAdmissionStopOperation), ctx, arg)
+}
+
 // InsertWorkspaceAgent mocks base method.
 func (m *MockStore) InsertWorkspaceAgent(ctx context.Context, arg database.InsertWorkspaceAgentParams) (database.WorkspaceAgent, error) {
 	m.ctrl.T.Helper()
@@ -8801,6 +9070,21 @@ func (m *MockStore) InsertWorkspaceBuild(ctx context.Context, arg database.Inser
 func (mr *MockStoreMockRecorder) InsertWorkspaceBuild(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceBuild", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceBuild), ctx, arg)
+}
+
+// InsertWorkspaceBuildAdmission mocks base method.
+func (m *MockStore) InsertWorkspaceBuildAdmission(ctx context.Context, arg database.InsertWorkspaceBuildAdmissionParams) (database.WorkspaceBuildAdmission, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InsertWorkspaceBuildAdmission", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceBuildAdmission)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// InsertWorkspaceBuildAdmission indicates an expected call of InsertWorkspaceBuildAdmission.
+func (mr *MockStoreMockRecorder) InsertWorkspaceBuildAdmission(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertWorkspaceBuildAdmission", reflect.TypeOf((*MockStore)(nil).InsertWorkspaceBuildAdmission), ctx, arg)
 }
 
 // InsertWorkspaceBuildOrchestration mocks base method.
@@ -9653,6 +9937,21 @@ func (mr *MockStoreMockRecorder) ReorderChatQueuedMessageToHead(ctx, arg any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReorderChatQueuedMessageToHead", reflect.TypeOf((*MockStore)(nil).ReorderChatQueuedMessageToHead), ctx, arg)
 }
 
+// RequeueWorkspaceBuildAdmission mocks base method.
+func (m *MockStore) RequeueWorkspaceBuildAdmission(ctx context.Context, arg database.RequeueWorkspaceBuildAdmissionParams) (database.WorkspaceBuildAdmission, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequeueWorkspaceBuildAdmission", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceBuildAdmission)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RequeueWorkspaceBuildAdmission indicates an expected call of RequeueWorkspaceBuildAdmission.
+func (mr *MockStoreMockRecorder) RequeueWorkspaceBuildAdmission(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequeueWorkspaceBuildAdmission", reflect.TypeOf((*MockStore)(nil).RequeueWorkspaceBuildAdmission), ctx, arg)
+}
+
 // RevokeDBCryptKey mocks base method.
 func (m *MockStore) RevokeDBCryptKey(ctx context.Context, activeKeyDigest string) error {
 	m.ctrl.T.Helper()
@@ -10459,6 +10758,21 @@ func (mr *MockStoreMockRecorder) UpdateMCPServerUserTokenFromRefresh(ctx, arg an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMCPServerUserTokenFromRefresh", reflect.TypeOf((*MockStore)(nil).UpdateMCPServerUserTokenFromRefresh), ctx, arg)
 }
 
+// UpdateManagedWorkspaceBuildJobWithCancelByID mocks base method.
+func (m *MockStore) UpdateManagedWorkspaceBuildJobWithCancelByID(ctx context.Context, arg database.UpdateManagedWorkspaceBuildJobWithCancelByIDParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateManagedWorkspaceBuildJobWithCancelByID", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateManagedWorkspaceBuildJobWithCancelByID indicates an expected call of UpdateManagedWorkspaceBuildJobWithCancelByID.
+func (mr *MockStoreMockRecorder) UpdateManagedWorkspaceBuildJobWithCancelByID(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateManagedWorkspaceBuildJobWithCancelByID", reflect.TypeOf((*MockStore)(nil).UpdateManagedWorkspaceBuildJobWithCancelByID), ctx, arg)
+}
+
 // UpdateMemberRoles mocks base method.
 func (m *MockStore) UpdateMemberRoles(ctx context.Context, arg database.UpdateMemberRolesParams) (database.OrganizationMember, error) {
 	m.ctrl.T.Helper()
@@ -10575,6 +10889,21 @@ func (m *MockStore) UpdateOrganizationWorkspaceSharingSettings(ctx context.Conte
 func (mr *MockStoreMockRecorder) UpdateOrganizationWorkspaceSharingSettings(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateOrganizationWorkspaceSharingSettings", reflect.TypeOf((*MockStore)(nil).UpdateOrganizationWorkspaceSharingSettings), ctx, arg)
+}
+
+// UpdatePendingWorkspaceBuildAdmissionStatus mocks base method.
+func (m *MockStore) UpdatePendingWorkspaceBuildAdmissionStatus(ctx context.Context, arg database.UpdatePendingWorkspaceBuildAdmissionStatusParams) (database.WorkspaceBuildAdmission, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdatePendingWorkspaceBuildAdmissionStatus", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceBuildAdmission)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdatePendingWorkspaceBuildAdmissionStatus indicates an expected call of UpdatePendingWorkspaceBuildAdmissionStatus.
+func (mr *MockStoreMockRecorder) UpdatePendingWorkspaceBuildAdmissionStatus(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePendingWorkspaceBuildAdmissionStatus", reflect.TypeOf((*MockStore)(nil).UpdatePendingWorkspaceBuildAdmissionStatus), ctx, arg)
 }
 
 // UpdatePrebuildProvisionerJobWithCancel mocks base method.
@@ -11546,6 +11875,21 @@ func (mr *MockStoreMockRecorder) UpdateWorkspaceAutostart(ctx, arg any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWorkspaceAutostart", reflect.TypeOf((*MockStore)(nil).UpdateWorkspaceAutostart), ctx, arg)
 }
 
+// UpdateWorkspaceBuildAdmissionDisplays mocks base method.
+func (m *MockStore) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg database.UpdateWorkspaceBuildAdmissionDisplaysParams) ([]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWorkspaceBuildAdmissionDisplays", ctx, arg)
+	ret0, _ := ret[0].([]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateWorkspaceBuildAdmissionDisplays indicates an expected call of UpdateWorkspaceBuildAdmissionDisplays.
+func (mr *MockStoreMockRecorder) UpdateWorkspaceBuildAdmissionDisplays(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWorkspaceBuildAdmissionDisplays", reflect.TypeOf((*MockStore)(nil).UpdateWorkspaceBuildAdmissionDisplays), ctx, arg)
+}
+
 // UpdateWorkspaceBuildCostByID mocks base method.
 func (m *MockStore) UpdateWorkspaceBuildCostByID(ctx context.Context, arg database.UpdateWorkspaceBuildCostByIDParams) error {
 	m.ctrl.T.Helper()
@@ -12474,6 +12818,21 @@ func (m *MockStore) UpsertWebpushVAPIDKeys(ctx context.Context, arg database.Ups
 func (mr *MockStoreMockRecorder) UpsertWebpushVAPIDKeys(ctx, arg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWebpushVAPIDKeys", reflect.TypeOf((*MockStore)(nil).UpsertWebpushVAPIDKeys), ctx, arg)
+}
+
+// UpsertWorkspaceAdmissionTemplate mocks base method.
+func (m *MockStore) UpsertWorkspaceAdmissionTemplate(ctx context.Context, arg database.UpsertWorkspaceAdmissionTemplateParams) (database.WorkspaceAdmissionTemplate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertWorkspaceAdmissionTemplate", ctx, arg)
+	ret0, _ := ret[0].(database.WorkspaceAdmissionTemplate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpsertWorkspaceAdmissionTemplate indicates an expected call of UpsertWorkspaceAdmissionTemplate.
+func (mr *MockStoreMockRecorder) UpsertWorkspaceAdmissionTemplate(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertWorkspaceAdmissionTemplate", reflect.TypeOf((*MockStore)(nil).UpsertWorkspaceAdmissionTemplate), ctx, arg)
 }
 
 // UpsertWorkspaceAgentContextResource mocks base method.

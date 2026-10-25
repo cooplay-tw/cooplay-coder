@@ -265,6 +265,13 @@ export const RBACResourceActions: Partial<
 		update: "edit workspace settings (scheduling, permissions, parameters)",
 		update_agent: "update an existing workspace agent",
 	},
+	workspace_admission: {
+		create: "create a workspace admission record",
+		delete: "delete managed templates and entitlements",
+		read: "read workspace admission records, managed templates and entitlements",
+		update:
+			"update workspace admission records, managed templates and entitlements",
+	},
 	workspace_agent_devcontainers: {
 		create: "create workspace agent devcontainers",
 	},

@@ -290,7 +290,12 @@ CREATE TYPE api_key_scope AS ENUM (
     'chat_model_config:read',
     'chat_model_config:update',
     'chat_model_config:delete',
-    'chat_model_config:share'
+    'chat_model_config:share',
+    'workspace_admission:*',
+    'workspace_admission:create',
+    'workspace_admission:delete',
+    'workspace_admission:read',
+    'workspace_admission:update'
 );
 
 CREATE TYPE app_sharing_level AS ENUM (
@@ -663,6 +668,17 @@ CREATE TYPE user_status AS ENUM (
 );
 
 COMMENT ON TYPE user_status IS 'Defines the users status: active, dormant, or suspended.';
+
+CREATE TYPE workspace_admission_status AS ENUM (
+    'waiting',
+    'granted',
+    'acquired',
+    'rejected',
+    'canceled',
+    'revoked'
+);
+
+COMMENT ON TYPE workspace_admission_status IS 'Lifecycle of a workspace START admission request: waiting for capacity, granted by the controller, acquired by a provisioner, or ended by rejection, cancellation or revocation.';
 
 CREATE TYPE workspace_agent_context_body_kind AS ENUM (
     'instruction_file',
@@ -3789,6 +3805,44 @@ CREATE TABLE webpush_subscriptions (
     endpoint_auth_key text NOT NULL
 );
 
+CREATE TABLE workspace_admission_entitlements (
+    user_id uuid NOT NULL,
+    template_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    allowed_profiles text[] NOT NULL,
+    updated_at timestamp with time zone NOT NULL
+);
+
+COMMENT ON TABLE workspace_admission_entitlements IS 'Profiles a user may request when starting workspaces of a managed template. Checked synchronously when the START build is created.';
+
+CREATE TABLE workspace_admission_stop_operations (
+    operation_id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
+    workspace_build_id uuid NOT NULL,
+    job_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    canceled_job_id uuid,
+    reason text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone NOT NULL
+);
+
+COMMENT ON TABLE workspace_admission_stop_operations IS 'STOP builds created through the workspace admission service, keyed by the controller operation ID for idempotent retries.';
+
+COMMENT ON COLUMN workspace_admission_stop_operations.canceled_job_id IS 'Pending START job that was canceled before it was acquired so the STOP build could be created.';
+
+CREATE TABLE workspace_admission_templates (
+    template_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    profile_parameter text NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT workspace_admission_templates_profile_parameter_check CHECK ((profile_parameter <> ''::text))
+);
+
+COMMENT ON TABLE workspace_admission_templates IS 'Templates whose START builds require a workspace admission grant before a provisioner may acquire them.';
+
+COMMENT ON COLUMN workspace_admission_templates.profile_parameter IS 'Name of the build parameter whose value selects the resource profile of a START build.';
+
 CREATE TABLE workspace_agent_context_resources (
     workspace_agent_id uuid NOT NULL,
     source text NOT NULL,
@@ -4065,6 +4119,46 @@ CREATE TABLE workspace_app_statuses (
     message text NOT NULL,
     uri text
 );
+
+CREATE TABLE workspace_build_admissions (
+    job_id uuid NOT NULL,
+    workspace_build_id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    owner_id uuid NOT NULL,
+    template_id uuid NOT NULL,
+    template_version_id uuid NOT NULL,
+    profile text NOT NULL,
+    status workspace_admission_status NOT NULL,
+    reason text DEFAULT ''::text NOT NULL,
+    queue_position integer,
+    operation_id uuid,
+    reservation_id uuid,
+    generation bigint,
+    grant_expires_at timestamp with time zone,
+    queued_at timestamp with time zone NOT NULL,
+    granted_at timestamp with time zone,
+    acquired_at timestamp with time zone,
+    decided_at timestamp with time zone,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT workspace_build_admissions_acquired_at_check CHECK (((status <> 'acquired'::workspace_admission_status) OR (acquired_at IS NOT NULL))),
+    CONSTRAINT workspace_build_admissions_grant_fields_check CHECK (((status <> ALL (ARRAY['granted'::workspace_admission_status, 'acquired'::workspace_admission_status])) OR ((reservation_id IS NOT NULL) AND (generation IS NOT NULL) AND (operation_id IS NOT NULL) AND (grant_expires_at IS NOT NULL) AND (granted_at IS NOT NULL)))),
+    CONSTRAINT workspace_build_admissions_queue_position_check CHECK (((queue_position IS NULL) OR (queue_position >= 0)))
+);
+
+COMMENT ON TABLE workspace_build_admissions IS 'Admission state of START builds on managed templates. A provisioner may acquire a managed START only while its row is granted, unexpired and matches the build.';
+
+COMMENT ON COLUMN workspace_build_admissions.profile IS 'Resource profile resolved from the template profile parameter when the build was created.';
+
+COMMENT ON COLUMN workspace_build_admissions.reason IS 'Human readable waiting or decision reason shown to users, for example waiting_for_capacity.';
+
+COMMENT ON COLUMN workspace_build_admissions.queue_position IS 'Capacity queue position reported by the controller. Unrelated to the provisioner queue position.';
+
+COMMENT ON COLUMN workspace_build_admissions.grant_expires_at IS 'A granted row stops authorizing acquisition after this time unless the controller refreshes the grant.';
+
+COMMENT ON COLUMN workspace_build_admissions.queued_at IS 'When the START build entered the capacity queue. The job reaper never measures capacity waits from this time.';
+
+COMMENT ON COLUMN workspace_build_admissions.granted_at IS 'When the current grant was first recorded. The job reaper measures pending time of granted jobs from here.';
 
 CREATE TABLE workspace_build_orchestrations (
     id uuid NOT NULL,
@@ -4696,6 +4790,18 @@ ALTER TABLE ONLY users
 ALTER TABLE ONLY webpush_subscriptions
     ADD CONSTRAINT webpush_subscriptions_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY workspace_admission_entitlements
+    ADD CONSTRAINT workspace_admission_entitlements_pkey PRIMARY KEY (user_id, template_id);
+
+ALTER TABLE ONLY workspace_admission_stop_operations
+    ADD CONSTRAINT workspace_admission_stop_operations_pkey PRIMARY KEY (operation_id);
+
+ALTER TABLE ONLY workspace_admission_stop_operations
+    ADD CONSTRAINT workspace_admission_stop_operations_workspace_build_id_key UNIQUE (workspace_build_id);
+
+ALTER TABLE ONLY workspace_admission_templates
+    ADD CONSTRAINT workspace_admission_templates_pkey PRIMARY KEY (template_id);
+
 ALTER TABLE ONLY workspace_agent_context_resources
     ADD CONSTRAINT workspace_agent_context_resources_pkey PRIMARY KEY (workspace_agent_id, source);
 
@@ -4752,6 +4858,12 @@ ALTER TABLE ONLY workspace_apps
 
 ALTER TABLE ONLY workspace_apps
     ADD CONSTRAINT workspace_apps_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY workspace_build_admissions
+    ADD CONSTRAINT workspace_build_admissions_pkey PRIMARY KEY (job_id);
+
+ALTER TABLE ONLY workspace_build_admissions
+    ADD CONSTRAINT workspace_build_admissions_workspace_build_id_key UNIQUE (workspace_build_id);
 
 ALTER TABLE ONLY workspace_build_orchestrations
     ADD CONSTRAINT workspace_build_orchestrations_child_build_id_key UNIQUE (child_build_id);
@@ -5091,6 +5203,10 @@ CREATE UNIQUE INDEX users_username_lower_idx ON users USING btree (lower(usernam
 
 CREATE UNIQUE INDEX webpush_subscriptions_user_id_endpoint_idx ON webpush_subscriptions USING btree (user_id, endpoint);
 
+CREATE INDEX workspace_admission_entitlements_template_id_idx ON workspace_admission_entitlements USING btree (template_id);
+
+CREATE INDEX workspace_admission_stop_operations_workspace_id_idx ON workspace_admission_stop_operations USING btree (workspace_id);
+
 CREATE INDEX workspace_agent_devcontainers_workspace_agent_id ON workspace_agent_devcontainers USING btree (workspace_agent_id);
 
 COMMENT ON INDEX workspace_agent_devcontainers_workspace_agent_id IS 'Workspace agent foreign key and query index';
@@ -5118,6 +5234,12 @@ COMMENT ON INDEX workspace_app_audit_sessions_unique_index IS 'Unique index to e
 CREATE INDEX workspace_app_stats_workspace_id_idx ON workspace_app_stats USING btree (workspace_id);
 
 CREATE INDEX workspace_app_statuses_app_id_idx ON workspace_app_statuses USING btree (app_id, created_at DESC);
+
+CREATE INDEX workspace_build_admissions_status_idx ON workspace_build_admissions USING btree (status, queued_at, job_id);
+
+CREATE INDEX workspace_build_admissions_updated_at_idx ON workspace_build_admissions USING btree (updated_at);
+
+CREATE INDEX workspace_build_admissions_workspace_id_idx ON workspace_build_admissions USING btree (workspace_id);
 
 CREATE INDEX workspace_modules_created_at_idx ON workspace_modules USING btree (created_at);
 
@@ -5620,6 +5742,33 @@ ALTER TABLE ONLY user_status_changes
 ALTER TABLE ONLY webpush_subscriptions
     ADD CONSTRAINT webpush_subscriptions_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY workspace_admission_entitlements
+    ADD CONSTRAINT workspace_admission_entitlements_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_entitlements
+    ADD CONSTRAINT workspace_admission_entitlements_template_id_fkey FOREIGN KEY (template_id) REFERENCES workspace_admission_templates(template_id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_entitlements
+    ADD CONSTRAINT workspace_admission_entitlements_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_stop_operations
+    ADD CONSTRAINT workspace_admission_stop_operations_job_id_fkey FOREIGN KEY (job_id) REFERENCES provisioner_jobs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_stop_operations
+    ADD CONSTRAINT workspace_admission_stop_operations_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_stop_operations
+    ADD CONSTRAINT workspace_admission_stop_operations_workspace_build_id_fkey FOREIGN KEY (workspace_build_id) REFERENCES workspace_builds(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_stop_operations
+    ADD CONSTRAINT workspace_admission_stop_operations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_templates
+    ADD CONSTRAINT workspace_admission_templates_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_templates
+    ADD CONSTRAINT workspace_admission_templates_template_id_fkey FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY workspace_agent_context_resources
     ADD CONSTRAINT workspace_agent_context_resources_workspace_agent_id_fkey FOREIGN KEY (workspace_agent_id) REFERENCES workspace_agents(id) ON DELETE CASCADE;
 
@@ -5685,6 +5834,27 @@ ALTER TABLE ONLY workspace_app_statuses
 
 ALTER TABLE ONLY workspace_apps
     ADD CONSTRAINT workspace_apps_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES workspace_agents(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_build_admissions
+    ADD CONSTRAINT workspace_build_admissions_job_id_fkey FOREIGN KEY (job_id) REFERENCES provisioner_jobs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_build_admissions
+    ADD CONSTRAINT workspace_build_admissions_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_build_admissions
+    ADD CONSTRAINT workspace_build_admissions_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_build_admissions
+    ADD CONSTRAINT workspace_build_admissions_template_id_fkey FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_build_admissions
+    ADD CONSTRAINT workspace_build_admissions_template_version_id_fkey FOREIGN KEY (template_version_id) REFERENCES template_versions(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_build_admissions
+    ADD CONSTRAINT workspace_build_admissions_workspace_build_id_fkey FOREIGN KEY (workspace_build_id) REFERENCES workspace_builds(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_build_admissions
+    ADD CONSTRAINT workspace_build_admissions_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY workspace_build_orchestrations
     ADD CONSTRAINT workspace_build_orchestrations_child_build_workspace_id_fkey FOREIGN KEY (child_build_id, workspace_id) REFERENCES workspace_builds(id, workspace_id) ON DELETE CASCADE;

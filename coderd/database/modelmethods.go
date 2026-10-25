@@ -410,6 +410,26 @@ func (t GetFileTemplatesRow) RBACObject() rbac.Object {
 		WithGroupACL(t.GroupACL)
 }
 
+// RBACObject returns the workspace admission object of a managed template.
+func (t WorkspaceAdmissionTemplate) RBACObject() rbac.Object {
+	return rbac.ResourceWorkspaceAdmission.WithID(t.TemplateID).InOrg(t.OrganizationID)
+}
+
+// RBACObject returns the workspace admission object of a user entitlement.
+func (e WorkspaceAdmissionEntitlement) RBACObject() rbac.Object {
+	return rbac.ResourceWorkspaceAdmission.WithID(e.TemplateID).InOrg(e.OrganizationID)
+}
+
+// RBACObject returns the workspace admission object of a START build.
+func (a WorkspaceBuildAdmission) RBACObject() rbac.Object {
+	return rbac.ResourceWorkspaceAdmission.WithID(a.JobID).InOrg(a.OrganizationID)
+}
+
+// RBACObject returns the workspace admission object of a stop operation.
+func (o WorkspaceAdmissionStopOperation) RBACObject() rbac.Object {
+	return rbac.ResourceWorkspaceAdmission.WithID(o.OperationID).InOrg(o.OrganizationID)
+}
+
 // RBACObject for a workspace build's provisioner state requires Update access of the template.
 func (t GetWorkspaceBuildProvisionerStateByIDRow) RBACObject() rbac.Object {
 	return rbac.ResourceTemplate.WithID(t.TemplateID).

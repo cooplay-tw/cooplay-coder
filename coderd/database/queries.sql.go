@@ -23516,6 +23516,88 @@ func (q *sqlQuerier) UpdateProvisionerJobLogsOverflowed(ctx context.Context, arg
 }
 
 const acquireProvisionerJob = `-- name: AcquireProvisionerJob :one
+WITH candidate AS (
+	SELECT
+		potential_job.id,
+		COALESCE(
+			wb.transition = 'start'::workspace_transition AND wat.template_id IS NOT NULL,
+			false
+		) AS managed_start
+	FROM
+		provisioner_jobs AS potential_job
+	LEFT JOIN
+		workspace_builds wb ON wb.job_id = potential_job.id
+	LEFT JOIN
+		workspaces w ON w.id = wb.workspace_id
+	LEFT JOIN
+		workspace_admission_templates wat ON wat.template_id = w.template_id
+	WHERE
+		potential_job.started_at IS NULL
+		AND potential_job.completed_at IS NULL
+		AND potential_job.organization_id = $3
+		-- Ensure the caller has the correct provisioner.
+		AND potential_job.provisioner = ANY($4 :: provisioner_type [ ])
+		-- elsewhere, we use the tagset type, but here we use jsonb for backward compatibility
+		-- they are aliases and the code that calls this query already relies on a different type
+		AND provisioner_tagset_contains($5 :: jsonb, potential_job.tags :: jsonb)
+		AND (
+			NOT COALESCE(
+				wb.transition = 'start'::workspace_transition AND wat.template_id IS NOT NULL,
+				false
+			)
+			OR EXISTS (
+				SELECT
+					1
+				FROM
+					workspace_build_admissions wba
+				WHERE
+					wba.job_id = potential_job.id
+					AND wba.status = 'granted'::workspace_admission_status
+					AND wba.grant_expires_at > NOW()
+					AND wba.workspace_build_id = wb.id
+					AND wba.workspace_id = wb.workspace_id
+					AND wba.owner_id = w.owner_id
+					AND wba.template_id = w.template_id
+					AND wba.template_version_id = wb.template_version_id
+					AND wba.generation IS NOT NULL
+					AND wba.reservation_id IS NOT NULL
+					AND wba.operation_id IS NOT NULL
+					AND wba.profile = (
+						SELECT
+							wbp.value
+						FROM
+							workspace_build_parameters wbp
+						WHERE
+							wbp.workspace_build_id = wb.id
+							AND wbp.name = wat.profile_parameter
+					)
+			)
+		)
+	ORDER BY
+		-- STOP and DELETE builds release capacity, so acquire them first.
+		COALESCE(wb.transition IN ('stop'::workspace_transition, 'delete'::workspace_transition), false) DESC,
+		-- Ensure that human-initiated jobs are prioritized over prebuilds.
+		potential_job.initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC,
+		potential_job.created_at ASC
+	FOR UPDATE OF potential_job
+	SKIP LOCKED
+	LIMIT
+		1
+),
+acquired_admission AS (
+	UPDATE
+		workspace_build_admissions
+	SET
+		status = 'acquired'::workspace_admission_status,
+		acquired_at = $1,
+		updated_at = $1
+	WHERE
+		job_id = (SELECT id FROM candidate WHERE managed_start)
+		AND status = 'granted'::workspace_admission_status
+		AND grant_expires_at > NOW()
+	RETURNING
+		job_id
+)
 UPDATE
 	provisioner_jobs
 SET
@@ -23523,29 +23605,12 @@ SET
 	updated_at = $1,
 	worker_id = $2
 WHERE
-	id = (
-		SELECT
-			id
-		FROM
-			provisioner_jobs AS potential_job
-		WHERE
-			potential_job.started_at IS NULL
-			AND potential_job.completed_at IS NULL
-			AND potential_job.organization_id = $3
-			-- Ensure the caller has the correct provisioner.
-			AND potential_job.provisioner = ANY($4 :: provisioner_type [ ])
-			-- elsewhere, we use the tagset type, but here we use jsonb for backward compatibility
-			-- they are aliases and the code that calls this query already relies on a different type
-			AND provisioner_tagset_contains($5 :: jsonb, potential_job.tags :: jsonb)
-		ORDER BY
-			-- Ensure that human-initiated jobs are prioritized over prebuilds.
-			potential_job.initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC,
-			potential_job.created_at ASC
-		FOR UPDATE
-		SKIP LOCKED
-		LIMIT
-			1
-	) RETURNING id, created_at, updated_at, started_at, canceled_at, completed_at, error, organization_id, initiator_id, provisioner, storage_method, type, input, worker_id, file_id, tags, error_code, trace_metadata, job_status, logs_length, logs_overflowed
+	id = (SELECT id FROM candidate)
+	AND (
+		NOT (SELECT managed_start FROM candidate)
+		OR EXISTS (SELECT 1 FROM acquired_admission)
+	)
+RETURNING id, created_at, updated_at, started_at, canceled_at, completed_at, error, organization_id, initiator_id, provisioner, storage_method, type, input, worker_id, file_id, tags, error_code, trace_metadata, job_status, logs_length, logs_overflowed
 `
 
 type AcquireProvisionerJobParams struct {
@@ -23562,6 +23627,18 @@ type AcquireProvisionerJobParams struct {
 // SKIP LOCKED is used to jump over locked rows. This prevents
 // multiple provisioners from acquiring the same jobs. See:
 // https://www.postgresql.org/docs/9.5/sql-select.html#SQL-FOR-UPDATE-SHARE
+//
+// A managed START is a workspace START build whose workspace template is
+// listed in workspace_admission_templates. A managed START is only eligible
+// while a granted, unexpired admission that matches the build exists. A
+// missing, waiting, expired, mismatched or ended admission makes the job
+// ineligible. Acquiring a managed START marks its admission as acquired in
+// the same statement. If the admission changed after the candidate was
+// selected (for example a concurrent revoke), the admission update matches no
+// row and the job is not acquired.
+//
+// STOP and DELETE builds release capacity, so they are acquired before other
+// jobs. Human-initiated jobs are then prioritized over prebuilds.
 func (q *sqlQuerier) AcquireProvisionerJob(ctx context.Context, arg AcquireProvisionerJobParams) (ProvisionerJob, error) {
 	row := q.db.QueryRowContext(ctx, acquireProvisionerJob,
 		arg.StartedAt,
@@ -23766,13 +23843,39 @@ WITH filtered_provisioner_jobs AS (
 		id = ANY($1 :: uuid [ ]) -- Apply filter early to reduce dataset size before expensive JOIN
 ),
 pending_jobs AS (
-	-- Step 2: Extract only pending jobs
+	-- Step 2: Extract only pending jobs that compete for provisioners.
+	-- Managed START builds without a current grant wait for capacity, not
+	-- for a provisioner, so they never take a provisioner queue position.
 	SELECT
-		id, initiator_id, created_at, tags
+		pj.id, pj.initiator_id, pj.created_at, pj.tags,
+		COALESCE(wb.transition IN ('stop'::workspace_transition, 'delete'::workspace_transition), false) AS releases_capacity
 	FROM
-		provisioner_jobs
+		provisioner_jobs pj
+	LEFT JOIN
+		workspace_builds wb ON wb.job_id = pj.id
 	WHERE
-		job_status = 'pending'
+		pj.job_status = 'pending'
+		AND NOT EXISTS (
+			SELECT
+				1
+			FROM
+				workspaces w
+			JOIN
+				workspace_admission_templates wat ON wat.template_id = w.template_id
+			WHERE
+				w.id = wb.workspace_id
+				AND wb.transition = 'start'::workspace_transition
+				AND NOT EXISTS (
+					SELECT
+						1
+					FROM
+						workspace_build_admissions wba
+					WHERE
+						wba.job_id = pj.id
+						AND wba.status = 'granted'::workspace_admission_status
+						AND wba.grant_expires_at > NOW()
+				)
+		)
 ),
 unique_daemon_tags AS (
 	SELECT DISTINCT tags FROM provisioner_daemons pd
@@ -23792,7 +23895,8 @@ ranked_jobs AS (
 	SELECT
 		pj.id,
 		pj.created_at,
-		ROW_NUMBER() OVER (PARTITION BY rdt.tags ORDER BY pj.initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC, pj.created_at ASC) AS queue_position,
+		-- Keep in sync with the ordering of AcquireProvisionerJob.
+		ROW_NUMBER() OVER (PARTITION BY rdt.tags ORDER BY pj.releases_capacity DESC, pj.initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC, pj.created_at ASC) AS queue_position,
 		COUNT(*) OVER (PARTITION BY rdt.tags) AS queue_size
 	FROM
 		pending_jobs pj
@@ -23896,22 +24000,49 @@ func (q *sqlQuerier) GetProvisionerJobsByIDsWithQueuePosition(ctx context.Contex
 const getProvisionerJobsByOrganizationAndStatusWithQueuePositionAndProvisioner = `-- name: GetProvisionerJobsByOrganizationAndStatusWithQueuePositionAndProvisioner :many
 WITH pending_jobs AS (
     SELECT
-        id, initiator_id, created_at
+        pending.id, pending.initiator_id, pending.created_at,
+        COALESCE(pending_wb.transition IN ('stop'::workspace_transition, 'delete'::workspace_transition), false) AS releases_capacity
     FROM
-        provisioner_jobs
+        provisioner_jobs pending
+    LEFT JOIN
+        workspace_builds pending_wb ON pending_wb.job_id = pending.id
     WHERE
-        started_at IS NULL
+        pending.started_at IS NULL
     AND
-        canceled_at IS NULL
+        pending.canceled_at IS NULL
     AND
-        completed_at IS NULL
+        pending.completed_at IS NULL
     AND
-        error IS NULL
+        pending.error IS NULL
+    -- Managed START builds without a current grant wait for capacity, not
+    -- for a provisioner, so they never take a provisioner queue position.
+    AND NOT EXISTS (
+        SELECT
+            1
+        FROM
+            workspaces pending_w
+        JOIN
+            workspace_admission_templates pending_wat ON pending_wat.template_id = pending_w.template_id
+        WHERE
+            pending_w.id = pending_wb.workspace_id
+            AND pending_wb.transition = 'start'::workspace_transition
+            AND NOT EXISTS (
+                SELECT
+                    1
+                FROM
+                    workspace_build_admissions pending_wba
+                WHERE
+                    pending_wba.job_id = pending.id
+                    AND pending_wba.status = 'granted'::workspace_admission_status
+                    AND pending_wba.grant_expires_at > NOW()
+            )
+    )
 ),
 queue_position AS (
     SELECT
         id,
-        ROW_NUMBER() OVER (ORDER BY initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC, created_at ASC) AS queue_position
+        -- Keep in sync with the ordering of AcquireProvisionerJob.
+        ROW_NUMBER() OVER (ORDER BY releases_capacity DESC, initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC, created_at ASC) AS queue_position
     FROM
         pending_jobs
 ),
@@ -24140,22 +24271,43 @@ func (q *sqlQuerier) GetProvisionerJobsCreatedAfter(ctx context.Context, created
 
 const getProvisionerJobsToBeReaped = `-- name: GetProvisionerJobsToBeReaped :many
 SELECT
-	id, created_at, updated_at, started_at, canceled_at, completed_at, error, organization_id, initiator_id, provisioner, storage_method, type, input, worker_id, file_id, tags, error_code, trace_metadata, job_status, logs_length, logs_overflowed
+	pj.id, pj.created_at, pj.updated_at, pj.started_at, pj.canceled_at, pj.completed_at, pj.error, pj.organization_id, pj.initiator_id, pj.provisioner, pj.storage_method, pj.type, pj.input, pj.worker_id, pj.file_id, pj.tags, pj.error_code, pj.trace_metadata, pj.job_status, pj.logs_length, pj.logs_overflowed
 FROM
-	provisioner_jobs
+	provisioner_jobs pj
+LEFT JOIN (
+	SELECT
+		wb.job_id,
+		wba.status AS admission_status,
+		wba.granted_at AS admission_granted_at
+	FROM
+		workspace_builds wb
+	JOIN
+		workspaces w ON w.id = wb.workspace_id
+	JOIN
+		workspace_admission_templates wat ON wat.template_id = w.template_id
+	LEFT JOIN
+		workspace_build_admissions wba ON wba.job_id = wb.job_id
+	WHERE
+		wb.transition = 'start'::workspace_transition
+) managed_start ON managed_start.job_id = pj.id
 WHERE
 	(
 		-- If the job has not been started before @pending_since, reap it.
-		updated_at < $1
-		AND started_at IS NULL
-		AND completed_at IS NULL
+		pj.started_at IS NULL
+		AND pj.completed_at IS NULL
+		AND managed_start.admission_status IS DISTINCT FROM 'waiting'::workspace_admission_status
+		AND CASE
+			WHEN managed_start.admission_status = 'granted'::workspace_admission_status
+				THEN GREATEST(pj.updated_at, managed_start.admission_granted_at)
+			ELSE pj.updated_at
+		END < $1::timestamptz
 	)
 	OR
 	(
 		-- If the job has been started but not completed before @hung_since, reap it.
-		updated_at < $2
-		AND started_at IS NOT NULL
-		AND completed_at IS NULL
+		pj.updated_at < $2::timestamptz
+		AND pj.started_at IS NOT NULL
+		AND pj.completed_at IS NULL
 	)
 ORDER BY random()
 LIMIT $3
@@ -24167,6 +24319,11 @@ type GetProvisionerJobsToBeReapedParams struct {
 	MaxJobs      int32     `db:"max_jobs" json:"max_jobs"`
 }
 
+// A pending managed START whose admission is waiting is a valid capacity wait
+// and is never reaped. A granted managed START measures its pending time from
+// the later of the last job update and the grant, so a job that waited for
+// capacity is not reaped right after it is granted. Keep in sync with the
+// post-lock recheck in coderd/jobreaper.
 // To avoid repeatedly attempting to reap the same jobs, we randomly order and limit to @max_jobs.
 func (q *sqlQuerier) GetProvisionerJobsToBeReaped(ctx context.Context, arg GetProvisionerJobsToBeReapedParams) ([]ProvisionerJob, error) {
 	rows, err := q.db.QueryContext(ctx, getProvisionerJobsToBeReaped, arg.PendingSince, arg.HungSince, arg.MaxJobs)
@@ -32712,6 +32869,1233 @@ func (q *sqlQuerier) ValidateUserIDs(ctx context.Context, userIds []uuid.UUID) (
 	row := q.db.QueryRowContext(ctx, validateUserIDs, pq.Array(userIds))
 	var i ValidateUserIDsRow
 	err := row.Scan(pq.Array(&i.InvalidUserIds), &i.Ok)
+	return i, err
+}
+
+const deleteWorkspaceAdmissionEntitlementsByUserID = `-- name: DeleteWorkspaceAdmissionEntitlementsByUserID :exec
+DELETE FROM
+	workspace_admission_entitlements
+WHERE
+	user_id = $1
+`
+
+func (q *sqlQuerier) DeleteWorkspaceAdmissionEntitlementsByUserID(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deleteWorkspaceAdmissionEntitlementsByUserID, userID)
+	return err
+}
+
+const deleteWorkspaceAdmissionTemplateByTemplateID = `-- name: DeleteWorkspaceAdmissionTemplateByTemplateID :execrows
+DELETE FROM
+	workspace_admission_templates
+WHERE
+	template_id = $1
+`
+
+func (q *sqlQuerier) DeleteWorkspaceAdmissionTemplateByTemplateID(ctx context.Context, templateID uuid.UUID) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteWorkspaceAdmissionTemplateByTemplateID, templateID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getWorkspaceAdmissionEntitlementByUserIDAndTemplateID = `-- name: GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID :one
+SELECT
+	user_id, template_id, organization_id, allowed_profiles, updated_at
+FROM
+	workspace_admission_entitlements
+WHERE
+	user_id = $1
+	AND template_id = $2
+`
+
+type GetWorkspaceAdmissionEntitlementByUserIDAndTemplateIDParams struct {
+	UserID     uuid.UUID `db:"user_id" json:"user_id"`
+	TemplateID uuid.UUID `db:"template_id" json:"template_id"`
+}
+
+func (q *sqlQuerier) GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID(ctx context.Context, arg GetWorkspaceAdmissionEntitlementByUserIDAndTemplateIDParams) (WorkspaceAdmissionEntitlement, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceAdmissionEntitlementByUserIDAndTemplateID, arg.UserID, arg.TemplateID)
+	var i WorkspaceAdmissionEntitlement
+	err := row.Scan(
+		&i.UserID,
+		&i.TemplateID,
+		&i.OrganizationID,
+		pq.Array(&i.AllowedProfiles),
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getWorkspaceAdmissionEntitlementsByUserID = `-- name: GetWorkspaceAdmissionEntitlementsByUserID :many
+SELECT
+	user_id, template_id, organization_id, allowed_profiles, updated_at
+FROM
+	workspace_admission_entitlements
+WHERE
+	user_id = $1
+ORDER BY
+	template_id
+`
+
+func (q *sqlQuerier) GetWorkspaceAdmissionEntitlementsByUserID(ctx context.Context, userID uuid.UUID) ([]WorkspaceAdmissionEntitlement, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceAdmissionEntitlementsByUserID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkspaceAdmissionEntitlement
+	for rows.Next() {
+		var i WorkspaceAdmissionEntitlement
+		if err := rows.Scan(
+			&i.UserID,
+			&i.TemplateID,
+			&i.OrganizationID,
+			pq.Array(&i.AllowedProfiles),
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspaceAdmissionStateByJobID = `-- name: GetWorkspaceAdmissionStateByJobID :one
+SELECT
+	COALESCE(
+		wb.transition = 'start'::workspace_transition AND wat.template_id IS NOT NULL,
+		false
+	)::boolean AS managed_start,
+	wba.status AS admission_status,
+	wba.granted_at AS admission_granted_at
+FROM
+	provisioner_jobs pj
+LEFT JOIN
+	workspace_builds wb ON wb.job_id = pj.id
+LEFT JOIN
+	workspaces w ON w.id = wb.workspace_id
+LEFT JOIN
+	workspace_admission_templates wat ON wat.template_id = w.template_id
+LEFT JOIN
+	workspace_build_admissions wba ON wba.job_id = pj.id
+WHERE
+	pj.id = $1
+`
+
+type GetWorkspaceAdmissionStateByJobIDRow struct {
+	ManagedStart       bool                         `db:"managed_start" json:"managed_start"`
+	AdmissionStatus    NullWorkspaceAdmissionStatus `db:"admission_status" json:"admission_status"`
+	AdmissionGrantedAt sql.NullTime                 `db:"admission_granted_at" json:"admission_granted_at"`
+}
+
+// Reports whether a provisioner job is a managed START (a workspace START
+// build whose workspace template is managed by workspace admission) and the
+// admission state of that job, if any.
+func (q *sqlQuerier) GetWorkspaceAdmissionStateByJobID(ctx context.Context, jobID uuid.UUID) (GetWorkspaceAdmissionStateByJobIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceAdmissionStateByJobID, jobID)
+	var i GetWorkspaceAdmissionStateByJobIDRow
+	err := row.Scan(&i.ManagedStart, &i.AdmissionStatus, &i.AdmissionGrantedAt)
+	return i, err
+}
+
+const getWorkspaceAdmissionStopOperationByOperationID = `-- name: GetWorkspaceAdmissionStopOperationByOperationID :one
+SELECT
+	operation_id, workspace_id, workspace_build_id, job_id, organization_id, canceled_job_id, reason, created_at
+FROM
+	workspace_admission_stop_operations
+WHERE
+	operation_id = $1
+`
+
+func (q *sqlQuerier) GetWorkspaceAdmissionStopOperationByOperationID(ctx context.Context, operationID uuid.UUID) (WorkspaceAdmissionStopOperation, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceAdmissionStopOperationByOperationID, operationID)
+	var i WorkspaceAdmissionStopOperation
+	err := row.Scan(
+		&i.OperationID,
+		&i.WorkspaceID,
+		&i.WorkspaceBuildID,
+		&i.JobID,
+		&i.OrganizationID,
+		&i.CanceledJobID,
+		&i.Reason,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getWorkspaceAdmissionTemplateByTemplateID = `-- name: GetWorkspaceAdmissionTemplateByTemplateID :one
+SELECT
+	template_id, organization_id, profile_parameter, created_at, updated_at
+FROM
+	workspace_admission_templates
+WHERE
+	template_id = $1
+`
+
+func (q *sqlQuerier) GetWorkspaceAdmissionTemplateByTemplateID(ctx context.Context, templateID uuid.UUID) (WorkspaceAdmissionTemplate, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceAdmissionTemplateByTemplateID, templateID)
+	var i WorkspaceAdmissionTemplate
+	err := row.Scan(
+		&i.TemplateID,
+		&i.OrganizationID,
+		&i.ProfileParameter,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getWorkspaceAdmissionTemplates = `-- name: GetWorkspaceAdmissionTemplates :many
+SELECT
+	template_id, organization_id, profile_parameter, created_at, updated_at
+FROM
+	workspace_admission_templates
+ORDER BY
+	created_at, template_id
+`
+
+func (q *sqlQuerier) GetWorkspaceAdmissionTemplates(ctx context.Context) ([]WorkspaceAdmissionTemplate, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceAdmissionTemplates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkspaceAdmissionTemplate
+	for rows.Next() {
+		var i WorkspaceAdmissionTemplate
+		if err := rows.Scan(
+			&i.TemplateID,
+			&i.OrganizationID,
+			&i.ProfileParameter,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspaceAdmissionUsers = `-- name: GetWorkspaceAdmissionUsers :many
+SELECT
+	u.id,
+	u.username,
+	u.email,
+	u.name,
+	u.status,
+	u.login_type,
+	u.deleted,
+	u.is_system,
+	u.is_service_account,
+	u.created_at,
+	u.updated_at,
+	COALESCE(ul.linked_id, '')::text AS oidc_linked_id
+FROM
+	users u
+LEFT JOIN
+	user_links ul ON ul.user_id = u.id AND ul.login_type = 'oidc'::login_type
+WHERE
+	$1::uuid = '00000000-0000-0000-0000-000000000000'::uuid
+	OR u.id = $1::uuid
+ORDER BY
+	u.created_at, u.id
+`
+
+type GetWorkspaceAdmissionUsersRow struct {
+	ID               uuid.UUID  `db:"id" json:"id"`
+	Username         string     `db:"username" json:"username"`
+	Email            string     `db:"email" json:"email"`
+	Name             string     `db:"name" json:"name"`
+	Status           UserStatus `db:"status" json:"status"`
+	LoginType        LoginType  `db:"login_type" json:"login_type"`
+	Deleted          bool       `db:"deleted" json:"deleted"`
+	IsSystem         bool       `db:"is_system" json:"is_system"`
+	IsServiceAccount bool       `db:"is_service_account" json:"is_service_account"`
+	CreatedAt        time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt        time.Time  `db:"updated_at" json:"updated_at"`
+	OidcLinkedID     string     `db:"oidc_linked_id" json:"oidc_linked_id"`
+}
+
+// Lists users with their OIDC link for the admission service. A zero user ID
+// lists every user.
+func (q *sqlQuerier) GetWorkspaceAdmissionUsers(ctx context.Context, userID uuid.UUID) ([]GetWorkspaceAdmissionUsersRow, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceAdmissionUsers, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetWorkspaceAdmissionUsersRow
+	for rows.Next() {
+		var i GetWorkspaceAdmissionUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Username,
+			&i.Email,
+			&i.Name,
+			&i.Status,
+			&i.LoginType,
+			&i.Deleted,
+			&i.IsSystem,
+			&i.IsServiceAccount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.OidcLinkedID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspaceAdmissionWorkspaces = `-- name: GetWorkspaceAdmissionWorkspaces :many
+SELECT
+	w.id,
+	w.organization_id,
+	w.owner_id,
+	w.template_id,
+	w.name,
+	w.deleted,
+	w.created_at,
+	w.updated_at,
+	lb.id AS latest_build_id,
+	lb.build_number AS latest_build_number,
+	lb.transition AS latest_build_transition,
+	lb.created_at AS latest_build_created_at,
+	pj.id AS latest_job_id,
+	pj.job_status AS latest_job_status,
+	pj.created_at AS latest_job_created_at,
+	pj.started_at AS latest_job_started_at,
+	pj.completed_at AS latest_job_completed_at,
+	pj.canceled_at AS latest_job_canceled_at,
+	pj.error AS latest_job_error,
+	wba.status AS latest_admission_status
+FROM
+	workspaces w
+JOIN
+	workspace_admission_templates wat ON wat.template_id = w.template_id
+JOIN
+	workspace_builds lb ON lb.workspace_id = w.id
+	AND lb.build_number = (
+		SELECT
+			MAX(b.build_number)
+		FROM
+			workspace_builds b
+		WHERE
+			b.workspace_id = w.id
+	)
+JOIN
+	provisioner_jobs pj ON pj.id = lb.job_id
+LEFT JOIN
+	workspace_build_admissions wba ON wba.job_id = lb.job_id
+WHERE
+	$1::uuid = '00000000-0000-0000-0000-000000000000'::uuid
+	OR w.id = $1::uuid
+ORDER BY
+	w.created_at, w.id
+`
+
+type GetWorkspaceAdmissionWorkspacesRow struct {
+	ID                    uuid.UUID                    `db:"id" json:"id"`
+	OrganizationID        uuid.UUID                    `db:"organization_id" json:"organization_id"`
+	OwnerID               uuid.UUID                    `db:"owner_id" json:"owner_id"`
+	TemplateID            uuid.UUID                    `db:"template_id" json:"template_id"`
+	Name                  string                       `db:"name" json:"name"`
+	Deleted               bool                         `db:"deleted" json:"deleted"`
+	CreatedAt             time.Time                    `db:"created_at" json:"created_at"`
+	UpdatedAt             time.Time                    `db:"updated_at" json:"updated_at"`
+	LatestBuildID         uuid.UUID                    `db:"latest_build_id" json:"latest_build_id"`
+	LatestBuildNumber     int32                        `db:"latest_build_number" json:"latest_build_number"`
+	LatestBuildTransition WorkspaceTransition          `db:"latest_build_transition" json:"latest_build_transition"`
+	LatestBuildCreatedAt  time.Time                    `db:"latest_build_created_at" json:"latest_build_created_at"`
+	LatestJobID           uuid.UUID                    `db:"latest_job_id" json:"latest_job_id"`
+	LatestJobStatus       ProvisionerJobStatus         `db:"latest_job_status" json:"latest_job_status"`
+	LatestJobCreatedAt    time.Time                    `db:"latest_job_created_at" json:"latest_job_created_at"`
+	LatestJobStartedAt    sql.NullTime                 `db:"latest_job_started_at" json:"latest_job_started_at"`
+	LatestJobCompletedAt  sql.NullTime                 `db:"latest_job_completed_at" json:"latest_job_completed_at"`
+	LatestJobCanceledAt   sql.NullTime                 `db:"latest_job_canceled_at" json:"latest_job_canceled_at"`
+	LatestJobError        sql.NullString               `db:"latest_job_error" json:"latest_job_error"`
+	LatestAdmissionStatus NullWorkspaceAdmissionStatus `db:"latest_admission_status" json:"latest_admission_status"`
+}
+
+// Lists workspaces of managed templates with their latest build. A zero
+// workspace ID lists every managed workspace.
+func (q *sqlQuerier) GetWorkspaceAdmissionWorkspaces(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceAdmissionWorkspacesRow, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceAdmissionWorkspaces, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetWorkspaceAdmissionWorkspacesRow
+	for rows.Next() {
+		var i GetWorkspaceAdmissionWorkspacesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrganizationID,
+			&i.OwnerID,
+			&i.TemplateID,
+			&i.Name,
+			&i.Deleted,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LatestBuildID,
+			&i.LatestBuildNumber,
+			&i.LatestBuildTransition,
+			&i.LatestBuildCreatedAt,
+			&i.LatestJobID,
+			&i.LatestJobStatus,
+			&i.LatestJobCreatedAt,
+			&i.LatestJobStartedAt,
+			&i.LatestJobCompletedAt,
+			&i.LatestJobCanceledAt,
+			&i.LatestJobError,
+			&i.LatestAdmissionStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspaceBuildAdmissionByJobID = `-- name: GetWorkspaceBuildAdmissionByJobID :one
+SELECT
+	job_id, workspace_build_id, workspace_id, organization_id, owner_id, template_id, template_version_id, profile, status, reason, queue_position, operation_id, reservation_id, generation, grant_expires_at, queued_at, granted_at, acquired_at, decided_at, updated_at
+FROM
+	workspace_build_admissions
+WHERE
+	job_id = $1
+`
+
+func (q *sqlQuerier) GetWorkspaceBuildAdmissionByJobID(ctx context.Context, jobID uuid.UUID) (WorkspaceBuildAdmission, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceBuildAdmissionByJobID, jobID)
+	var i WorkspaceBuildAdmission
+	err := row.Scan(
+		&i.JobID,
+		&i.WorkspaceBuildID,
+		&i.WorkspaceID,
+		&i.OrganizationID,
+		&i.OwnerID,
+		&i.TemplateID,
+		&i.TemplateVersionID,
+		&i.Profile,
+		&i.Status,
+		&i.Reason,
+		&i.QueuePosition,
+		&i.OperationID,
+		&i.ReservationID,
+		&i.Generation,
+		&i.GrantExpiresAt,
+		&i.QueuedAt,
+		&i.GrantedAt,
+		&i.AcquiredAt,
+		&i.DecidedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getWorkspaceBuildAdmissionRequestByJobID = `-- name: GetWorkspaceBuildAdmissionRequestByJobID :one
+SELECT
+	wba.job_id, wba.workspace_build_id, wba.workspace_id, wba.organization_id, wba.owner_id, wba.template_id, wba.template_version_id, wba.profile, wba.status, wba.reason, wba.queue_position, wba.operation_id, wba.reservation_id, wba.generation, wba.grant_expires_at, wba.queued_at, wba.granted_at, wba.acquired_at, wba.decided_at, wba.updated_at,
+	pj.job_status,
+	pj.created_at AS job_created_at,
+	pj.started_at AS job_started_at,
+	pj.completed_at AS job_completed_at,
+	pj.canceled_at AS job_canceled_at,
+	pj.error AS job_error,
+	w.deleted AS workspace_deleted
+FROM
+	workspace_build_admissions wba
+JOIN
+	provisioner_jobs pj ON pj.id = wba.job_id
+JOIN
+	workspaces w ON w.id = wba.workspace_id
+WHERE
+	wba.job_id = $1
+`
+
+type GetWorkspaceBuildAdmissionRequestByJobIDRow struct {
+	WorkspaceBuildAdmission WorkspaceBuildAdmission `db:"workspace_build_admission" json:"workspace_build_admission"`
+	JobStatus               ProvisionerJobStatus    `db:"job_status" json:"job_status"`
+	JobCreatedAt            time.Time               `db:"job_created_at" json:"job_created_at"`
+	JobStartedAt            sql.NullTime            `db:"job_started_at" json:"job_started_at"`
+	JobCompletedAt          sql.NullTime            `db:"job_completed_at" json:"job_completed_at"`
+	JobCanceledAt           sql.NullTime            `db:"job_canceled_at" json:"job_canceled_at"`
+	JobError                sql.NullString          `db:"job_error" json:"job_error"`
+	WorkspaceDeleted        bool                    `db:"workspace_deleted" json:"workspace_deleted"`
+}
+
+func (q *sqlQuerier) GetWorkspaceBuildAdmissionRequestByJobID(ctx context.Context, jobID uuid.UUID) (GetWorkspaceBuildAdmissionRequestByJobIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceBuildAdmissionRequestByJobID, jobID)
+	var i GetWorkspaceBuildAdmissionRequestByJobIDRow
+	err := row.Scan(
+		&i.WorkspaceBuildAdmission.JobID,
+		&i.WorkspaceBuildAdmission.WorkspaceBuildID,
+		&i.WorkspaceBuildAdmission.WorkspaceID,
+		&i.WorkspaceBuildAdmission.OrganizationID,
+		&i.WorkspaceBuildAdmission.OwnerID,
+		&i.WorkspaceBuildAdmission.TemplateID,
+		&i.WorkspaceBuildAdmission.TemplateVersionID,
+		&i.WorkspaceBuildAdmission.Profile,
+		&i.WorkspaceBuildAdmission.Status,
+		&i.WorkspaceBuildAdmission.Reason,
+		&i.WorkspaceBuildAdmission.QueuePosition,
+		&i.WorkspaceBuildAdmission.OperationID,
+		&i.WorkspaceBuildAdmission.ReservationID,
+		&i.WorkspaceBuildAdmission.Generation,
+		&i.WorkspaceBuildAdmission.GrantExpiresAt,
+		&i.WorkspaceBuildAdmission.QueuedAt,
+		&i.WorkspaceBuildAdmission.GrantedAt,
+		&i.WorkspaceBuildAdmission.AcquiredAt,
+		&i.WorkspaceBuildAdmission.DecidedAt,
+		&i.WorkspaceBuildAdmission.UpdatedAt,
+		&i.JobStatus,
+		&i.JobCreatedAt,
+		&i.JobStartedAt,
+		&i.JobCompletedAt,
+		&i.JobCanceledAt,
+		&i.JobError,
+		&i.WorkspaceDeleted,
+	)
+	return i, err
+}
+
+const getWorkspaceBuildAdmissionRequests = `-- name: GetWorkspaceBuildAdmissionRequests :many
+SELECT
+	wba.job_id, wba.workspace_build_id, wba.workspace_id, wba.organization_id, wba.owner_id, wba.template_id, wba.template_version_id, wba.profile, wba.status, wba.reason, wba.queue_position, wba.operation_id, wba.reservation_id, wba.generation, wba.grant_expires_at, wba.queued_at, wba.granted_at, wba.acquired_at, wba.decided_at, wba.updated_at,
+	pj.job_status,
+	pj.created_at AS job_created_at,
+	pj.started_at AS job_started_at,
+	pj.completed_at AS job_completed_at,
+	pj.canceled_at AS job_canceled_at,
+	pj.error AS job_error,
+	w.deleted AS workspace_deleted
+FROM
+	workspace_build_admissions wba
+JOIN
+	provisioner_jobs pj ON pj.id = wba.job_id
+JOIN
+	workspaces w ON w.id = wba.workspace_id
+WHERE
+	(
+		COALESCE(array_length($1::workspace_admission_status[], 1), 0) = 0
+		OR wba.status = ANY($1::workspace_admission_status[])
+	)
+	AND (
+		NOT $2::boolean
+		OR (wba.queued_at, wba.job_id) > ($3::timestamptz, $4::uuid)
+	)
+ORDER BY
+	wba.queued_at, wba.job_id
+LIMIT
+	$5::int
+`
+
+type GetWorkspaceBuildAdmissionRequestsParams struct {
+	Statuses      []WorkspaceAdmissionStatus `db:"statuses" json:"statuses"`
+	HasCursor     bool                       `db:"has_cursor" json:"has_cursor"`
+	AfterQueuedAt time.Time                  `db:"after_queued_at" json:"after_queued_at"`
+	AfterJobID    uuid.UUID                  `db:"after_job_id" json:"after_job_id"`
+	LimitCount    int32                      `db:"limit_count" json:"limit_count"`
+}
+
+type GetWorkspaceBuildAdmissionRequestsRow struct {
+	WorkspaceBuildAdmission WorkspaceBuildAdmission `db:"workspace_build_admission" json:"workspace_build_admission"`
+	JobStatus               ProvisionerJobStatus    `db:"job_status" json:"job_status"`
+	JobCreatedAt            time.Time               `db:"job_created_at" json:"job_created_at"`
+	JobStartedAt            sql.NullTime            `db:"job_started_at" json:"job_started_at"`
+	JobCompletedAt          sql.NullTime            `db:"job_completed_at" json:"job_completed_at"`
+	JobCanceledAt           sql.NullTime            `db:"job_canceled_at" json:"job_canceled_at"`
+	JobError                sql.NullString          `db:"job_error" json:"job_error"`
+	WorkspaceDeleted        bool                    `db:"workspace_deleted" json:"workspace_deleted"`
+}
+
+// Lists admission requests in stable queue order for the admission service.
+// The cursor is the (queued_at, job_id) pair of the last row of the previous
+// page.
+func (q *sqlQuerier) GetWorkspaceBuildAdmissionRequests(ctx context.Context, arg GetWorkspaceBuildAdmissionRequestsParams) ([]GetWorkspaceBuildAdmissionRequestsRow, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceBuildAdmissionRequests,
+		pq.Array(arg.Statuses),
+		arg.HasCursor,
+		arg.AfterQueuedAt,
+		arg.AfterJobID,
+		arg.LimitCount,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetWorkspaceBuildAdmissionRequestsRow
+	for rows.Next() {
+		var i GetWorkspaceBuildAdmissionRequestsRow
+		if err := rows.Scan(
+			&i.WorkspaceBuildAdmission.JobID,
+			&i.WorkspaceBuildAdmission.WorkspaceBuildID,
+			&i.WorkspaceBuildAdmission.WorkspaceID,
+			&i.WorkspaceBuildAdmission.OrganizationID,
+			&i.WorkspaceBuildAdmission.OwnerID,
+			&i.WorkspaceBuildAdmission.TemplateID,
+			&i.WorkspaceBuildAdmission.TemplateVersionID,
+			&i.WorkspaceBuildAdmission.Profile,
+			&i.WorkspaceBuildAdmission.Status,
+			&i.WorkspaceBuildAdmission.Reason,
+			&i.WorkspaceBuildAdmission.QueuePosition,
+			&i.WorkspaceBuildAdmission.OperationID,
+			&i.WorkspaceBuildAdmission.ReservationID,
+			&i.WorkspaceBuildAdmission.Generation,
+			&i.WorkspaceBuildAdmission.GrantExpiresAt,
+			&i.WorkspaceBuildAdmission.QueuedAt,
+			&i.WorkspaceBuildAdmission.GrantedAt,
+			&i.WorkspaceBuildAdmission.AcquiredAt,
+			&i.WorkspaceBuildAdmission.DecidedAt,
+			&i.WorkspaceBuildAdmission.UpdatedAt,
+			&i.JobStatus,
+			&i.JobCreatedAt,
+			&i.JobStartedAt,
+			&i.JobCompletedAt,
+			&i.JobCanceledAt,
+			&i.JobError,
+			&i.WorkspaceDeleted,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspaceBuildAdmissionsByBuildIDs = `-- name: GetWorkspaceBuildAdmissionsByBuildIDs :many
+SELECT
+	job_id, workspace_build_id, workspace_id, organization_id, owner_id, template_id, template_version_id, profile, status, reason, queue_position, operation_id, reservation_id, generation, grant_expires_at, queued_at, granted_at, acquired_at, decided_at, updated_at
+FROM
+	workspace_build_admissions
+WHERE
+	workspace_build_id = ANY($1::uuid[])
+`
+
+func (q *sqlQuerier) GetWorkspaceBuildAdmissionsByBuildIDs(ctx context.Context, buildIds []uuid.UUID) ([]WorkspaceBuildAdmission, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceBuildAdmissionsByBuildIDs, pq.Array(buildIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkspaceBuildAdmission
+	for rows.Next() {
+		var i WorkspaceBuildAdmission
+		if err := rows.Scan(
+			&i.JobID,
+			&i.WorkspaceBuildID,
+			&i.WorkspaceID,
+			&i.OrganizationID,
+			&i.OwnerID,
+			&i.TemplateID,
+			&i.TemplateVersionID,
+			&i.Profile,
+			&i.Status,
+			&i.Reason,
+			&i.QueuePosition,
+			&i.OperationID,
+			&i.ReservationID,
+			&i.Generation,
+			&i.GrantExpiresAt,
+			&i.QueuedAt,
+			&i.GrantedAt,
+			&i.AcquiredAt,
+			&i.DecidedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspaceBuildAdmissionsWatermark = `-- name: GetWorkspaceBuildAdmissionsWatermark :one
+SELECT
+	COALESCE(MAX(updated_at), '0001-01-01 00:00:00+00'::timestamptz)::timestamptz AS max_updated_at
+FROM
+	workspace_build_admissions
+`
+
+// Returns the latest admission update time. The admission service uses it as
+// a change cursor for long polling.
+func (q *sqlQuerier) GetWorkspaceBuildAdmissionsWatermark(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceBuildAdmissionsWatermark)
+	var max_updated_at time.Time
+	err := row.Scan(&max_updated_at)
+	return max_updated_at, err
+}
+
+const grantWorkspaceBuildAdmission = `-- name: GrantWorkspaceBuildAdmission :one
+UPDATE
+	workspace_build_admissions
+SET
+	status = 'granted'::workspace_admission_status,
+	reason = '',
+	queue_position = NULL,
+	reservation_id = $1::uuid,
+	generation = $2::bigint,
+	operation_id = $3::uuid,
+	grant_expires_at = $4::timestamptz,
+	granted_at = CASE
+		WHEN status = 'granted'::workspace_admission_status THEN granted_at
+		ELSE $5::timestamptz
+	END,
+	decided_at = $5::timestamptz,
+	updated_at = $5::timestamptz
+WHERE
+	job_id = $6
+	AND status IN ('waiting'::workspace_admission_status, 'granted'::workspace_admission_status)
+RETURNING
+	job_id, workspace_build_id, workspace_id, organization_id, owner_id, template_id, template_version_id, profile, status, reason, queue_position, operation_id, reservation_id, generation, grant_expires_at, queued_at, granted_at, acquired_at, decided_at, updated_at
+`
+
+type GrantWorkspaceBuildAdmissionParams struct {
+	ReservationID  uuid.UUID `db:"reservation_id" json:"reservation_id"`
+	Generation     int64     `db:"generation" json:"generation"`
+	OperationID    uuid.UUID `db:"operation_id" json:"operation_id"`
+	GrantExpiresAt time.Time `db:"grant_expires_at" json:"grant_expires_at"`
+	Now            time.Time `db:"now" json:"now"`
+	JobID          uuid.UUID `db:"job_id" json:"job_id"`
+}
+
+// Grants a waiting admission, or refreshes an existing grant. granted_at keeps
+// the time of the first grant so a refresh does not extend the job reaper
+// deadline. Callers hold the provisioner job row lock.
+func (q *sqlQuerier) GrantWorkspaceBuildAdmission(ctx context.Context, arg GrantWorkspaceBuildAdmissionParams) (WorkspaceBuildAdmission, error) {
+	row := q.db.QueryRowContext(ctx, grantWorkspaceBuildAdmission,
+		arg.ReservationID,
+		arg.Generation,
+		arg.OperationID,
+		arg.GrantExpiresAt,
+		arg.Now,
+		arg.JobID,
+	)
+	var i WorkspaceBuildAdmission
+	err := row.Scan(
+		&i.JobID,
+		&i.WorkspaceBuildID,
+		&i.WorkspaceID,
+		&i.OrganizationID,
+		&i.OwnerID,
+		&i.TemplateID,
+		&i.TemplateVersionID,
+		&i.Profile,
+		&i.Status,
+		&i.Reason,
+		&i.QueuePosition,
+		&i.OperationID,
+		&i.ReservationID,
+		&i.Generation,
+		&i.GrantExpiresAt,
+		&i.QueuedAt,
+		&i.GrantedAt,
+		&i.AcquiredAt,
+		&i.DecidedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertWorkspaceAdmissionEntitlement = `-- name: InsertWorkspaceAdmissionEntitlement :one
+INSERT INTO workspace_admission_entitlements (
+	user_id,
+	template_id,
+	organization_id,
+	allowed_profiles,
+	updated_at
+)
+SELECT
+	$1::uuid,
+	wat.template_id,
+	wat.organization_id,
+	$2::text[],
+	$3::timestamptz
+FROM
+	workspace_admission_templates wat
+WHERE
+	wat.template_id = $4
+RETURNING
+	user_id, template_id, organization_id, allowed_profiles, updated_at
+`
+
+type InsertWorkspaceAdmissionEntitlementParams struct {
+	UserID          uuid.UUID `db:"user_id" json:"user_id"`
+	AllowedProfiles []string  `db:"allowed_profiles" json:"allowed_profiles"`
+	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
+	TemplateID      uuid.UUID `db:"template_id" json:"template_id"`
+}
+
+// Returns no rows when the template is not managed by workspace admission.
+func (q *sqlQuerier) InsertWorkspaceAdmissionEntitlement(ctx context.Context, arg InsertWorkspaceAdmissionEntitlementParams) (WorkspaceAdmissionEntitlement, error) {
+	row := q.db.QueryRowContext(ctx, insertWorkspaceAdmissionEntitlement,
+		arg.UserID,
+		pq.Array(arg.AllowedProfiles),
+		arg.UpdatedAt,
+		arg.TemplateID,
+	)
+	var i WorkspaceAdmissionEntitlement
+	err := row.Scan(
+		&i.UserID,
+		&i.TemplateID,
+		&i.OrganizationID,
+		pq.Array(&i.AllowedProfiles),
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertWorkspaceAdmissionStopOperation = `-- name: InsertWorkspaceAdmissionStopOperation :one
+INSERT INTO workspace_admission_stop_operations (
+	operation_id,
+	workspace_id,
+	workspace_build_id,
+	job_id,
+	organization_id,
+	canceled_job_id,
+	reason,
+	created_at
+) VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5,
+	$6,
+	$7,
+	$8
+)
+RETURNING
+	operation_id, workspace_id, workspace_build_id, job_id, organization_id, canceled_job_id, reason, created_at
+`
+
+type InsertWorkspaceAdmissionStopOperationParams struct {
+	OperationID      uuid.UUID     `db:"operation_id" json:"operation_id"`
+	WorkspaceID      uuid.UUID     `db:"workspace_id" json:"workspace_id"`
+	WorkspaceBuildID uuid.UUID     `db:"workspace_build_id" json:"workspace_build_id"`
+	JobID            uuid.UUID     `db:"job_id" json:"job_id"`
+	OrganizationID   uuid.UUID     `db:"organization_id" json:"organization_id"`
+	CanceledJobID    uuid.NullUUID `db:"canceled_job_id" json:"canceled_job_id"`
+	Reason           string        `db:"reason" json:"reason"`
+	CreatedAt        time.Time     `db:"created_at" json:"created_at"`
+}
+
+func (q *sqlQuerier) InsertWorkspaceAdmissionStopOperation(ctx context.Context, arg InsertWorkspaceAdmissionStopOperationParams) (WorkspaceAdmissionStopOperation, error) {
+	row := q.db.QueryRowContext(ctx, insertWorkspaceAdmissionStopOperation,
+		arg.OperationID,
+		arg.WorkspaceID,
+		arg.WorkspaceBuildID,
+		arg.JobID,
+		arg.OrganizationID,
+		arg.CanceledJobID,
+		arg.Reason,
+		arg.CreatedAt,
+	)
+	var i WorkspaceAdmissionStopOperation
+	err := row.Scan(
+		&i.OperationID,
+		&i.WorkspaceID,
+		&i.WorkspaceBuildID,
+		&i.JobID,
+		&i.OrganizationID,
+		&i.CanceledJobID,
+		&i.Reason,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertWorkspaceBuildAdmission = `-- name: InsertWorkspaceBuildAdmission :one
+INSERT INTO workspace_build_admissions (
+	job_id,
+	workspace_build_id,
+	workspace_id,
+	organization_id,
+	owner_id,
+	template_id,
+	template_version_id,
+	profile,
+	status,
+	reason,
+	queued_at,
+	updated_at
+) VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5,
+	$6,
+	$7,
+	$8,
+	'waiting'::workspace_admission_status,
+	$9,
+	$10,
+	$10
+)
+RETURNING
+	job_id, workspace_build_id, workspace_id, organization_id, owner_id, template_id, template_version_id, profile, status, reason, queue_position, operation_id, reservation_id, generation, grant_expires_at, queued_at, granted_at, acquired_at, decided_at, updated_at
+`
+
+type InsertWorkspaceBuildAdmissionParams struct {
+	JobID             uuid.UUID `db:"job_id" json:"job_id"`
+	WorkspaceBuildID  uuid.UUID `db:"workspace_build_id" json:"workspace_build_id"`
+	WorkspaceID       uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	OrganizationID    uuid.UUID `db:"organization_id" json:"organization_id"`
+	OwnerID           uuid.UUID `db:"owner_id" json:"owner_id"`
+	TemplateID        uuid.UUID `db:"template_id" json:"template_id"`
+	TemplateVersionID uuid.UUID `db:"template_version_id" json:"template_version_id"`
+	Profile           string    `db:"profile" json:"profile"`
+	Reason            string    `db:"reason" json:"reason"`
+	QueuedAt          time.Time `db:"queued_at" json:"queued_at"`
+}
+
+// Records that a START build on a managed template waits for capacity. Every
+// admission starts as waiting; only the admission service grants it.
+func (q *sqlQuerier) InsertWorkspaceBuildAdmission(ctx context.Context, arg InsertWorkspaceBuildAdmissionParams) (WorkspaceBuildAdmission, error) {
+	row := q.db.QueryRowContext(ctx, insertWorkspaceBuildAdmission,
+		arg.JobID,
+		arg.WorkspaceBuildID,
+		arg.WorkspaceID,
+		arg.OrganizationID,
+		arg.OwnerID,
+		arg.TemplateID,
+		arg.TemplateVersionID,
+		arg.Profile,
+		arg.Reason,
+		arg.QueuedAt,
+	)
+	var i WorkspaceBuildAdmission
+	err := row.Scan(
+		&i.JobID,
+		&i.WorkspaceBuildID,
+		&i.WorkspaceID,
+		&i.OrganizationID,
+		&i.OwnerID,
+		&i.TemplateID,
+		&i.TemplateVersionID,
+		&i.Profile,
+		&i.Status,
+		&i.Reason,
+		&i.QueuePosition,
+		&i.OperationID,
+		&i.ReservationID,
+		&i.Generation,
+		&i.GrantExpiresAt,
+		&i.QueuedAt,
+		&i.GrantedAt,
+		&i.AcquiredAt,
+		&i.DecidedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const requeueWorkspaceBuildAdmission = `-- name: RequeueWorkspaceBuildAdmission :one
+UPDATE
+	workspace_build_admissions
+SET
+	status = 'waiting'::workspace_admission_status,
+	reason = $1,
+	queue_position = NULL,
+	reservation_id = NULL,
+	generation = NULL,
+	operation_id = NULL,
+	grant_expires_at = NULL,
+	granted_at = NULL,
+	decided_at = $2::timestamptz,
+	updated_at = $2::timestamptz
+WHERE
+	job_id = $3
+	AND status IN ('waiting'::workspace_admission_status, 'granted'::workspace_admission_status)
+RETURNING
+	job_id, workspace_build_id, workspace_id, organization_id, owner_id, template_id, template_version_id, profile, status, reason, queue_position, operation_id, reservation_id, generation, grant_expires_at, queued_at, granted_at, acquired_at, decided_at, updated_at
+`
+
+type RequeueWorkspaceBuildAdmissionParams struct {
+	Reason string    `db:"reason" json:"reason"`
+	Now    time.Time `db:"now" json:"now"`
+	JobID  uuid.UUID `db:"job_id" json:"job_id"`
+}
+
+// Returns a waiting or granted admission to the capacity queue and clears the
+// grant. Callers hold the provisioner job row lock and have verified that no
+// provisioner acquired the job.
+func (q *sqlQuerier) RequeueWorkspaceBuildAdmission(ctx context.Context, arg RequeueWorkspaceBuildAdmissionParams) (WorkspaceBuildAdmission, error) {
+	row := q.db.QueryRowContext(ctx, requeueWorkspaceBuildAdmission, arg.Reason, arg.Now, arg.JobID)
+	var i WorkspaceBuildAdmission
+	err := row.Scan(
+		&i.JobID,
+		&i.WorkspaceBuildID,
+		&i.WorkspaceID,
+		&i.OrganizationID,
+		&i.OwnerID,
+		&i.TemplateID,
+		&i.TemplateVersionID,
+		&i.Profile,
+		&i.Status,
+		&i.Reason,
+		&i.QueuePosition,
+		&i.OperationID,
+		&i.ReservationID,
+		&i.Generation,
+		&i.GrantExpiresAt,
+		&i.QueuedAt,
+		&i.GrantedAt,
+		&i.AcquiredAt,
+		&i.DecidedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateManagedWorkspaceBuildJobWithCancelByID = `-- name: UpdateManagedWorkspaceBuildJobWithCancelByID :execrows
+UPDATE
+	provisioner_jobs pj
+SET
+	canceled_at = $1,
+	completed_at = $2
+WHERE
+	pj.id = $3
+	AND pj.type = 'workspace_build'::provisioner_job_type
+	AND EXISTS (
+		SELECT
+			1
+		FROM
+			workspace_builds wb
+		JOIN
+			workspaces w ON w.id = wb.workspace_id
+		JOIN
+			workspace_admission_templates wat ON wat.template_id = w.template_id
+		WHERE
+			wb.job_id = pj.id
+	)
+`
+
+type UpdateManagedWorkspaceBuildJobWithCancelByIDParams struct {
+	CanceledAt  sql.NullTime `db:"canceled_at" json:"canceled_at"`
+	CompletedAt sql.NullTime `db:"completed_at" json:"completed_at"`
+	ID          uuid.UUID    `db:"id" json:"id"`
+}
+
+// Cancels a workspace build job of a managed template on behalf of the
+// admission service. Mirrors UpdateProvisionerJobWithCancelByID but only
+// matches jobs of managed workspaces.
+func (q *sqlQuerier) UpdateManagedWorkspaceBuildJobWithCancelByID(ctx context.Context, arg UpdateManagedWorkspaceBuildJobWithCancelByIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateManagedWorkspaceBuildJobWithCancelByID, arg.CanceledAt, arg.CompletedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updatePendingWorkspaceBuildAdmissionStatus = `-- name: UpdatePendingWorkspaceBuildAdmissionStatus :one
+UPDATE
+	workspace_build_admissions
+SET
+	status = $1::workspace_admission_status,
+	reason = $2,
+	queue_position = NULL,
+	decided_at = $3::timestamptz,
+	updated_at = $3::timestamptz
+WHERE
+	job_id = $4
+	AND status IN ('waiting'::workspace_admission_status, 'granted'::workspace_admission_status)
+	AND $1::workspace_admission_status IN (
+		'rejected'::workspace_admission_status,
+		'canceled'::workspace_admission_status,
+		'revoked'::workspace_admission_status
+	)
+RETURNING
+	job_id, workspace_build_id, workspace_id, organization_id, owner_id, template_id, template_version_id, profile, status, reason, queue_position, operation_id, reservation_id, generation, grant_expires_at, queued_at, granted_at, acquired_at, decided_at, updated_at
+`
+
+type UpdatePendingWorkspaceBuildAdmissionStatusParams struct {
+	Status WorkspaceAdmissionStatus `db:"status" json:"status"`
+	Reason string                   `db:"reason" json:"reason"`
+	Now    time.Time                `db:"now" json:"now"`
+	JobID  uuid.UUID                `db:"job_id" json:"job_id"`
+}
+
+// Ends an admission that no provisioner acquired, as rejected, canceled or
+// revoked. Returns no rows when the admission does not exist, was acquired or
+// already ended.
+func (q *sqlQuerier) UpdatePendingWorkspaceBuildAdmissionStatus(ctx context.Context, arg UpdatePendingWorkspaceBuildAdmissionStatusParams) (WorkspaceBuildAdmission, error) {
+	row := q.db.QueryRowContext(ctx, updatePendingWorkspaceBuildAdmissionStatus,
+		arg.Status,
+		arg.Reason,
+		arg.Now,
+		arg.JobID,
+	)
+	var i WorkspaceBuildAdmission
+	err := row.Scan(
+		&i.JobID,
+		&i.WorkspaceBuildID,
+		&i.WorkspaceID,
+		&i.OrganizationID,
+		&i.OwnerID,
+		&i.TemplateID,
+		&i.TemplateVersionID,
+		&i.Profile,
+		&i.Status,
+		&i.Reason,
+		&i.QueuePosition,
+		&i.OperationID,
+		&i.ReservationID,
+		&i.Generation,
+		&i.GrantExpiresAt,
+		&i.QueuedAt,
+		&i.GrantedAt,
+		&i.AcquiredAt,
+		&i.DecidedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateWorkspaceBuildAdmissionDisplays = `-- name: UpdateWorkspaceBuildAdmissionDisplays :many
+UPDATE
+	workspace_build_admissions wba
+SET
+	reason = d.reason,
+	queue_position = NULLIF(d.queue_position, -1),
+	updated_at = $1::timestamptz
+FROM (
+	SELECT
+		unnest($2::uuid[]) AS job_id,
+		unnest($3::text[]) AS reason,
+		unnest($4::integer[]) AS queue_position
+) d
+WHERE
+	wba.job_id = d.job_id
+	AND wba.status = 'waiting'::workspace_admission_status
+RETURNING
+	wba.job_id
+`
+
+type UpdateWorkspaceBuildAdmissionDisplaysParams struct {
+	UpdatedAt      time.Time   `db:"updated_at" json:"updated_at"`
+	JobIds         []uuid.UUID `db:"job_ids" json:"job_ids"`
+	Reasons        []string    `db:"reasons" json:"reasons"`
+	QueuePositions []int32     `db:"queue_positions" json:"queue_positions"`
+}
+
+// Updates the waiting reason and capacity queue position shown to users.
+// Only waiting rows change. A queue position of -1 clears the position.
+func (q *sqlQuerier) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg UpdateWorkspaceBuildAdmissionDisplaysParams) ([]uuid.UUID, error) {
+	rows, err := q.db.QueryContext(ctx, updateWorkspaceBuildAdmissionDisplays,
+		arg.UpdatedAt,
+		pq.Array(arg.JobIds),
+		pq.Array(arg.Reasons),
+		pq.Array(arg.QueuePositions),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var job_id uuid.UUID
+		if err := rows.Scan(&job_id); err != nil {
+			return nil, err
+		}
+		items = append(items, job_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const upsertWorkspaceAdmissionTemplate = `-- name: UpsertWorkspaceAdmissionTemplate :one
+INSERT INTO workspace_admission_templates (
+	template_id,
+	organization_id,
+	profile_parameter,
+	created_at,
+	updated_at
+)
+SELECT
+	t.id,
+	t.organization_id,
+	$1::text,
+	$2::timestamptz,
+	$2::timestamptz
+FROM
+	templates t
+WHERE
+	t.id = $3
+	AND NOT t.deleted
+ON CONFLICT (template_id) DO UPDATE SET
+	profile_parameter = EXCLUDED.profile_parameter,
+	updated_at = EXCLUDED.updated_at
+RETURNING
+	template_id, organization_id, profile_parameter, created_at, updated_at
+`
+
+type UpsertWorkspaceAdmissionTemplateParams struct {
+	ProfileParameter string    `db:"profile_parameter" json:"profile_parameter"`
+	Now              time.Time `db:"now" json:"now"`
+	TemplateID       uuid.UUID `db:"template_id" json:"template_id"`
+}
+
+// Marks a template as managed by workspace admission. The organization is
+// copied from the template so callers cannot attach a template to another
+// organization. Returns no rows when the template does not exist or is
+// deleted.
+func (q *sqlQuerier) UpsertWorkspaceAdmissionTemplate(ctx context.Context, arg UpsertWorkspaceAdmissionTemplateParams) (WorkspaceAdmissionTemplate, error) {
+	row := q.db.QueryRowContext(ctx, upsertWorkspaceAdmissionTemplate, arg.ProfileParameter, arg.Now, arg.TemplateID)
+	var i WorkspaceAdmissionTemplate
+	err := row.Scan(
+		&i.TemplateID,
+		&i.OrganizationID,
+		&i.ProfileParameter,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 

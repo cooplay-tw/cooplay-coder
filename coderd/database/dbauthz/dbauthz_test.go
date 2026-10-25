@@ -4787,6 +4787,143 @@ func (s *MethodTestSuite) TestProvisionerKeys() {
 	}))
 }
 
+func (s *MethodTestSuite) TestWorkspaceAdmission() {
+	s.Run("GetWorkspaceAdmissionTemplateByTemplateID", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		tpl := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionTemplate{})
+		dbm.EXPECT().GetWorkspaceAdmissionTemplateByTemplateID(gomock.Any(), tpl.TemplateID).Return(tpl, nil).AnyTimes()
+		check.Args(tpl.TemplateID).Asserts(tpl, policy.ActionRead).Returns(tpl)
+	}))
+	s.Run("GetWorkspaceAdmissionTemplates", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		dbm.EXPECT().GetWorkspaceAdmissionTemplates(gomock.Any()).Return([]database.WorkspaceAdmissionTemplate{}, nil).AnyTimes()
+		check.Args().Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead)
+	}))
+	s.Run("UpsertWorkspaceAdmissionTemplate", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		tpl := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionTemplate{})
+		arg := database.UpsertWorkspaceAdmissionTemplateParams{TemplateID: tpl.TemplateID, ProfileParameter: "profile", Now: dbtime.Now()}
+		dbm.EXPECT().UpsertWorkspaceAdmissionTemplate(gomock.Any(), arg).Return(tpl, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(tpl)
+	}))
+	s.Run("DeleteWorkspaceAdmissionTemplateByTemplateID", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		id := uuid.New()
+		dbm.EXPECT().DeleteWorkspaceAdmissionTemplateByTemplateID(gomock.Any(), id).Return(int64(1), nil).AnyTimes()
+		check.Args(id).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionDelete).Returns(int64(1))
+	}))
+	s.Run("GetWorkspaceAdmissionEntitlementsByUserID", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		id := uuid.New()
+		dbm.EXPECT().GetWorkspaceAdmissionEntitlementsByUserID(gomock.Any(), id).Return([]database.WorkspaceAdmissionEntitlement{}, nil).AnyTimes()
+		check.Args(id).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead)
+	}))
+	s.Run("GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		ent := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionEntitlement{})
+		arg := database.GetWorkspaceAdmissionEntitlementByUserIDAndTemplateIDParams{UserID: ent.UserID, TemplateID: ent.TemplateID}
+		dbm.EXPECT().GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID(gomock.Any(), arg).Return(ent, nil).AnyTimes()
+		check.Args(arg).Asserts(ent, policy.ActionRead).Returns(ent)
+	}))
+	s.Run("DeleteWorkspaceAdmissionEntitlementsByUserID", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		id := uuid.New()
+		dbm.EXPECT().DeleteWorkspaceAdmissionEntitlementsByUserID(gomock.Any(), id).Return(nil).AnyTimes()
+		check.Args(id).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionDelete).Returns()
+	}))
+	s.Run("InsertWorkspaceAdmissionEntitlement", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		ent := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionEntitlement{})
+		arg := database.InsertWorkspaceAdmissionEntitlementParams{UserID: ent.UserID, TemplateID: ent.TemplateID, AllowedProfiles: []string{"small"}, UpdatedAt: dbtime.Now()}
+		dbm.EXPECT().InsertWorkspaceAdmissionEntitlement(gomock.Any(), arg).Return(ent, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(ent)
+	}))
+	s.Run("InsertWorkspaceBuildAdmission", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		adm := testutil.Fake(s.T(), faker, database.WorkspaceBuildAdmission{})
+		arg := database.InsertWorkspaceBuildAdmissionParams{JobID: adm.JobID, OrganizationID: adm.OrganizationID, Profile: "small"}
+		dbm.EXPECT().InsertWorkspaceBuildAdmission(gomock.Any(), arg).Return(adm, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission.WithID(adm.JobID).InOrg(adm.OrganizationID), policy.ActionCreate).Returns(adm)
+	}))
+	s.Run("GetWorkspaceBuildAdmissionByJobID", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		adm := testutil.Fake(s.T(), faker, database.WorkspaceBuildAdmission{})
+		dbm.EXPECT().GetWorkspaceBuildAdmissionByJobID(gomock.Any(), adm.JobID).Return(adm, nil).AnyTimes()
+		check.Args(adm.JobID).Asserts(adm, policy.ActionRead).Returns(adm)
+	}))
+	s.Run("GetWorkspaceBuildAdmissionsByBuildIDs", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		ids := []uuid.UUID{uuid.New()}
+		dbm.EXPECT().GetWorkspaceBuildAdmissionsByBuildIDs(gomock.Any(), ids).Return([]database.WorkspaceBuildAdmission{}, nil).AnyTimes()
+		check.Args(ids).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead)
+	}))
+	s.Run("GetWorkspaceAdmissionStateByJobID", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		id := uuid.New()
+		dbm.EXPECT().GetWorkspaceAdmissionStateByJobID(gomock.Any(), id).Return(database.GetWorkspaceAdmissionStateByJobIDRow{}, nil).AnyTimes()
+		check.Args(id).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead)
+	}))
+	s.Run("GetWorkspaceBuildAdmissionRequests", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		arg := database.GetWorkspaceBuildAdmissionRequestsParams{LimitCount: 10}
+		dbm.EXPECT().GetWorkspaceBuildAdmissionRequests(gomock.Any(), arg).Return([]database.GetWorkspaceBuildAdmissionRequestsRow{}, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead)
+	}))
+	s.Run("GetWorkspaceBuildAdmissionRequestByJobID", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		id := uuid.New()
+		dbm.EXPECT().GetWorkspaceBuildAdmissionRequestByJobID(gomock.Any(), id).Return(database.GetWorkspaceBuildAdmissionRequestByJobIDRow{}, nil).AnyTimes()
+		check.Args(id).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead)
+	}))
+	s.Run("GrantWorkspaceBuildAdmission", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		adm := testutil.Fake(s.T(), faker, database.WorkspaceBuildAdmission{})
+		arg := database.GrantWorkspaceBuildAdmissionParams{JobID: adm.JobID, Generation: 1}
+		dbm.EXPECT().GrantWorkspaceBuildAdmission(gomock.Any(), arg).Return(adm, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(adm)
+	}))
+	s.Run("RequeueWorkspaceBuildAdmission", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		adm := testutil.Fake(s.T(), faker, database.WorkspaceBuildAdmission{})
+		arg := database.RequeueWorkspaceBuildAdmissionParams{JobID: adm.JobID, Reason: "waiting_for_capacity"}
+		dbm.EXPECT().RequeueWorkspaceBuildAdmission(gomock.Any(), arg).Return(adm, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(adm)
+	}))
+	s.Run("UpdatePendingWorkspaceBuildAdmissionStatus", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		adm := testutil.Fake(s.T(), faker, database.WorkspaceBuildAdmission{})
+		arg := database.UpdatePendingWorkspaceBuildAdmissionStatusParams{JobID: adm.JobID, Status: database.WorkspaceAdmissionStatusCanceled}
+		dbm.EXPECT().UpdatePendingWorkspaceBuildAdmissionStatus(gomock.Any(), arg).Return(adm, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(adm)
+	}))
+	s.Run("UpdateWorkspaceBuildAdmissionDisplays", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		arg := database.UpdateWorkspaceBuildAdmissionDisplaysParams{JobIds: []uuid.UUID{uuid.New()}, Reasons: []string{"x"}, QueuePositions: []int32{1}}
+		dbm.EXPECT().UpdateWorkspaceBuildAdmissionDisplays(gomock.Any(), arg).Return([]uuid.UUID{}, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate)
+	}))
+	s.Run("GetWorkspaceBuildAdmissionsWatermark", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		dbm.EXPECT().GetWorkspaceBuildAdmissionsWatermark(gomock.Any()).Return(time.Time{}, nil).AnyTimes()
+		check.Args().Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead)
+	}))
+	s.Run("GetWorkspaceAdmissionUsers", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		dbm.EXPECT().GetWorkspaceAdmissionUsers(gomock.Any(), uuid.Nil).Return([]database.GetWorkspaceAdmissionUsersRow{}, nil).AnyTimes()
+		check.Args(uuid.Nil).Asserts(
+			rbac.ResourceWorkspaceAdmission, policy.ActionRead,
+			rbac.ResourceUser, policy.ActionRead,
+			rbac.ResourceUser, policy.ActionReadPersonal,
+		)
+	}))
+	s.Run("GetWorkspaceAdmissionWorkspaces", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		dbm.EXPECT().GetWorkspaceAdmissionWorkspaces(gomock.Any(), uuid.Nil).Return([]database.GetWorkspaceAdmissionWorkspacesRow{}, nil).AnyTimes()
+		check.Args(uuid.Nil).Asserts(
+			rbac.ResourceWorkspaceAdmission, policy.ActionRead,
+			rbac.ResourceWorkspace, policy.ActionRead,
+		)
+	}))
+	s.Run("UpdateManagedWorkspaceBuildJobWithCancelByID", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		arg := database.UpdateManagedWorkspaceBuildJobWithCancelByIDParams{ID: uuid.New()}
+		dbm.EXPECT().UpdateManagedWorkspaceBuildJobWithCancelByID(gomock.Any(), arg).Return(int64(1), nil).AnyTimes()
+		check.Args(arg).Asserts(
+			rbac.ResourceWorkspaceAdmission, policy.ActionUpdate,
+			rbac.ResourceProvisionerJobs, policy.ActionUpdate,
+		).Returns(int64(1))
+	}))
+	s.Run("InsertWorkspaceAdmissionStopOperation", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		op := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionStopOperation{})
+		arg := database.InsertWorkspaceAdmissionStopOperationParams{OperationID: op.OperationID, OrganizationID: op.OrganizationID}
+		dbm.EXPECT().InsertWorkspaceAdmissionStopOperation(gomock.Any(), arg).Return(op, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission.WithID(op.OperationID).InOrg(op.OrganizationID), policy.ActionCreate).Returns(op)
+	}))
+	s.Run("GetWorkspaceAdmissionStopOperationByOperationID", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		op := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionStopOperation{})
+		dbm.EXPECT().GetWorkspaceAdmissionStopOperationByOperationID(gomock.Any(), op.OperationID).Return(op, nil).AnyTimes()
+		check.Args(op.OperationID).Asserts(op, policy.ActionRead).Returns(op)
+	}))
+}
+
 func (s *MethodTestSuite) TestExtraMethods() {
 	s.Run("GetProvisionerDaemons", s.Subtest(func(db database.Store, check *expects) {
 		dbtestutil.DisableForeignKeysAndTriggers(s.T(), db)

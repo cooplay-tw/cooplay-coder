@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +34,7 @@ import (
 	"github.com/coder/coder/v2/coderd/tracing"
 	"github.com/coder/coder/v2/coderd/util/ptr"
 	"github.com/coder/coder/v2/coderd/util/slice"
+	"github.com/coder/coder/v2/coderd/workspaceadmission"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/provisioner/terraform/tfparse"
 	"github.com/coder/coder/v2/provisionersdk"
@@ -439,6 +441,11 @@ func (b *Builder) buildTx(authFunc func(action policy.Action, object rbac.Object
 		return nil, nil, nil, err // already wrapped BuildError
 	}
 
+	admission, err := b.resolveAdmission()
+	if err != nil {
+		return nil, nil, nil, err // already wrapped BuildError
+	}
+
 	now := dbtime.Now()
 	provisionerJob, err := b.store.InsertProvisionerJob(b.ctx, database.InsertProvisionerJobParams{
 		ID:             uuid.New(),
@@ -560,6 +567,28 @@ func (b *Builder) buildTx(authFunc func(action policy.Action, object rbac.Object
 			return BuildError{http.StatusInternalServerError, "insert workspace build parameters: %w", err}
 		}
 
+		if admission != nil {
+			// The waiting admission commits together with the job, so a
+			// managed START never exists without it and capacity waits never
+			// roll back the build or a newly created workspace.
+			// nolint:gocritic // Admission records are system data; the build itself was authorized above.
+			_, err = store.InsertWorkspaceBuildAdmission(dbauthz.AsWorkspaceBuilder(b.ctx), database.InsertWorkspaceBuildAdmissionParams{
+				JobID:             provisionerJob.ID,
+				WorkspaceBuildID:  workspaceBuildID,
+				WorkspaceID:       b.workspace.ID,
+				OrganizationID:    b.workspace.OrganizationID,
+				OwnerID:           b.workspace.OwnerID,
+				TemplateID:        b.workspace.TemplateID,
+				TemplateVersionID: templateVersionID,
+				Profile:           admission.profile,
+				Reason:            workspaceadmission.ReasonWaitingForCapacity,
+				QueuedAt:          now,
+			})
+			if err != nil {
+				return BuildError{http.StatusInternalServerError, "insert workspace build admission", err}
+			}
+		}
+
 		workspaceBuild, err = store.GetWorkspaceBuildByID(b.ctx, workspaceBuildID)
 		if err != nil {
 			return BuildError{http.StatusInternalServerError, "get workspace build", err}
@@ -625,6 +654,72 @@ func (b *Builder) buildTx(authFunc func(action policy.Action, object rbac.Object
 	}
 
 	return &workspaceBuild, &provisionerJob, provisionerDaemons, nil
+}
+
+// admissionRequest describes the workspace admission a START build on a
+// managed template needs.
+type admissionRequest struct {
+	profile string
+}
+
+// resolveAdmission reports whether the build needs workspace admission and,
+// if so, which profile it requests. Only START builds of managed templates
+// need admission; STOP and DELETE builds are never limited by capacity.
+//
+// This is a fast policy check on data already in the database: the profile
+// must be set and the workspace owner must be entitled to it. It never waits
+// for capacity and never contacts the external controller.
+func (b *Builder) resolveAdmission() (*admissionRequest, error) {
+	if b.trans != database.WorkspaceTransitionStart {
+		//nolint:nilnil // Builds other than START never need admission.
+		return nil, nil
+	}
+
+	// nolint:gocritic // Admission settings are system data; the build itself is authorized separately.
+	managed, err := b.store.GetWorkspaceAdmissionTemplateByTemplateID(dbauthz.AsWorkspaceBuilder(b.ctx), b.workspace.TemplateID)
+	if xerrors.Is(err, sql.ErrNoRows) {
+		//nolint:nilnil // The template is not managed by workspace admission.
+		return nil, nil
+	}
+	if err != nil {
+		return nil, BuildError{http.StatusInternalServerError, "failed to fetch workspace admission settings", err}
+	}
+
+	if b.prebuiltWorkspaceBuildStage == sdkproto.PrebuiltWorkspaceBuildStage_CREATE || b.workspace.IsPrebuild() {
+		msg := "Prebuilt workspaces are not supported for templates managed by workspace admission."
+		return nil, BuildError{http.StatusBadRequest, msg, xerrors.New(msg)}
+	}
+
+	names, values, err := b.getParameters()
+	if err != nil {
+		return nil, err // already wrapped BuildError
+	}
+	profile := ""
+	for i, name := range names {
+		if name == managed.ProfileParameter && i < len(values) {
+			profile = values[i]
+			break
+		}
+	}
+	if profile == "" {
+		msg := fmt.Sprintf("Parameter %q must select a workspace profile for this template.", managed.ProfileParameter)
+		return nil, BuildError{http.StatusBadRequest, msg, xerrors.New(msg)}
+	}
+
+	// nolint:gocritic // Admission entitlements are system data; the build itself is authorized separately.
+	entitlement, err := b.store.GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID(dbauthz.AsWorkspaceBuilder(b.ctx), database.GetWorkspaceAdmissionEntitlementByUserIDAndTemplateIDParams{
+		UserID:     b.workspace.OwnerID,
+		TemplateID: b.workspace.TemplateID,
+	})
+	if err != nil && !xerrors.Is(err, sql.ErrNoRows) {
+		return nil, BuildError{http.StatusInternalServerError, "failed to fetch workspace admission entitlement", err}
+	}
+	if err != nil || !slices.Contains(entitlement.AllowedProfiles, profile) {
+		msg := fmt.Sprintf("The workspace owner is not entitled to start profile %q on this template.", profile)
+		return nil, BuildError{http.StatusForbidden, msg, xerrors.New(msg)}
+	}
+
+	return &admissionRequest{profile: profile}, nil
 }
 
 func (b *Builder) getTemplate() (*database.Template, error) {

@@ -4,7 +4,101 @@
 -- SKIP LOCKED is used to jump over locked rows. This prevents
 -- multiple provisioners from acquiring the same jobs. See:
 -- https://www.postgresql.org/docs/9.5/sql-select.html#SQL-FOR-UPDATE-SHARE
+--
+-- A managed START is a workspace START build whose workspace template is
+-- listed in workspace_admission_templates. A managed START is only eligible
+-- while a granted, unexpired admission that matches the build exists. A
+-- missing, waiting, expired, mismatched or ended admission makes the job
+-- ineligible. Acquiring a managed START marks its admission as acquired in
+-- the same statement. If the admission changed after the candidate was
+-- selected (for example a concurrent revoke), the admission update matches no
+-- row and the job is not acquired.
+--
+-- STOP and DELETE builds release capacity, so they are acquired before other
+-- jobs. Human-initiated jobs are then prioritized over prebuilds.
 -- name: AcquireProvisionerJob :one
+WITH candidate AS (
+	SELECT
+		potential_job.id,
+		COALESCE(
+			wb.transition = 'start'::workspace_transition AND wat.template_id IS NOT NULL,
+			false
+		) AS managed_start
+	FROM
+		provisioner_jobs AS potential_job
+	LEFT JOIN
+		workspace_builds wb ON wb.job_id = potential_job.id
+	LEFT JOIN
+		workspaces w ON w.id = wb.workspace_id
+	LEFT JOIN
+		workspace_admission_templates wat ON wat.template_id = w.template_id
+	WHERE
+		potential_job.started_at IS NULL
+		AND potential_job.completed_at IS NULL
+		AND potential_job.organization_id = @organization_id
+		-- Ensure the caller has the correct provisioner.
+		AND potential_job.provisioner = ANY(@types :: provisioner_type [ ])
+		-- elsewhere, we use the tagset type, but here we use jsonb for backward compatibility
+		-- they are aliases and the code that calls this query already relies on a different type
+		AND provisioner_tagset_contains(@provisioner_tags :: jsonb, potential_job.tags :: jsonb)
+		AND (
+			NOT COALESCE(
+				wb.transition = 'start'::workspace_transition AND wat.template_id IS NOT NULL,
+				false
+			)
+			OR EXISTS (
+				SELECT
+					1
+				FROM
+					workspace_build_admissions wba
+				WHERE
+					wba.job_id = potential_job.id
+					AND wba.status = 'granted'::workspace_admission_status
+					AND wba.grant_expires_at > NOW()
+					AND wba.workspace_build_id = wb.id
+					AND wba.workspace_id = wb.workspace_id
+					AND wba.owner_id = w.owner_id
+					AND wba.template_id = w.template_id
+					AND wba.template_version_id = wb.template_version_id
+					AND wba.generation IS NOT NULL
+					AND wba.reservation_id IS NOT NULL
+					AND wba.operation_id IS NOT NULL
+					AND wba.profile = (
+						SELECT
+							wbp.value
+						FROM
+							workspace_build_parameters wbp
+						WHERE
+							wbp.workspace_build_id = wb.id
+							AND wbp.name = wat.profile_parameter
+					)
+			)
+		)
+	ORDER BY
+		-- STOP and DELETE builds release capacity, so acquire them first.
+		COALESCE(wb.transition IN ('stop'::workspace_transition, 'delete'::workspace_transition), false) DESC,
+		-- Ensure that human-initiated jobs are prioritized over prebuilds.
+		potential_job.initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC,
+		potential_job.created_at ASC
+	FOR UPDATE OF potential_job
+	SKIP LOCKED
+	LIMIT
+		1
+),
+acquired_admission AS (
+	UPDATE
+		workspace_build_admissions
+	SET
+		status = 'acquired'::workspace_admission_status,
+		acquired_at = @started_at,
+		updated_at = @started_at
+	WHERE
+		job_id = (SELECT id FROM candidate WHERE managed_start)
+		AND status = 'granted'::workspace_admission_status
+		AND grant_expires_at > NOW()
+	RETURNING
+		job_id
+)
 UPDATE
 	provisioner_jobs
 SET
@@ -12,29 +106,12 @@ SET
 	updated_at = @started_at,
 	worker_id = @worker_id
 WHERE
-	id = (
-		SELECT
-			id
-		FROM
-			provisioner_jobs AS potential_job
-		WHERE
-			potential_job.started_at IS NULL
-			AND potential_job.completed_at IS NULL
-			AND potential_job.organization_id = @organization_id
-			-- Ensure the caller has the correct provisioner.
-			AND potential_job.provisioner = ANY(@types :: provisioner_type [ ])
-			-- elsewhere, we use the tagset type, but here we use jsonb for backward compatibility
-			-- they are aliases and the code that calls this query already relies on a different type
-			AND provisioner_tagset_contains(@provisioner_tags :: jsonb, potential_job.tags :: jsonb)
-		ORDER BY
-			-- Ensure that human-initiated jobs are prioritized over prebuilds.
-			potential_job.initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC,
-			potential_job.created_at ASC
-		FOR UPDATE
-		SKIP LOCKED
-		LIMIT
-			1
-	) RETURNING *;
+	id = (SELECT id FROM candidate)
+	AND (
+		NOT (SELECT managed_start FROM candidate)
+		OR EXISTS (SELECT 1 FROM acquired_admission)
+	)
+RETURNING *;
 
 -- name: GetProvisionerJobByID :one
 SELECT
@@ -78,13 +155,39 @@ WITH filtered_provisioner_jobs AS (
 		id = ANY(@ids :: uuid [ ]) -- Apply filter early to reduce dataset size before expensive JOIN
 ),
 pending_jobs AS (
-	-- Step 2: Extract only pending jobs
+	-- Step 2: Extract only pending jobs that compete for provisioners.
+	-- Managed START builds without a current grant wait for capacity, not
+	-- for a provisioner, so they never take a provisioner queue position.
 	SELECT
-		id, initiator_id, created_at, tags
+		pj.id, pj.initiator_id, pj.created_at, pj.tags,
+		COALESCE(wb.transition IN ('stop'::workspace_transition, 'delete'::workspace_transition), false) AS releases_capacity
 	FROM
-		provisioner_jobs
+		provisioner_jobs pj
+	LEFT JOIN
+		workspace_builds wb ON wb.job_id = pj.id
 	WHERE
-		job_status = 'pending'
+		pj.job_status = 'pending'
+		AND NOT EXISTS (
+			SELECT
+				1
+			FROM
+				workspaces w
+			JOIN
+				workspace_admission_templates wat ON wat.template_id = w.template_id
+			WHERE
+				w.id = wb.workspace_id
+				AND wb.transition = 'start'::workspace_transition
+				AND NOT EXISTS (
+					SELECT
+						1
+					FROM
+						workspace_build_admissions wba
+					WHERE
+						wba.job_id = pj.id
+						AND wba.status = 'granted'::workspace_admission_status
+						AND wba.grant_expires_at > NOW()
+				)
+		)
 ),
 unique_daemon_tags AS (
 	SELECT DISTINCT tags FROM provisioner_daemons pd
@@ -104,7 +207,8 @@ ranked_jobs AS (
 	SELECT
 		pj.id,
 		pj.created_at,
-		ROW_NUMBER() OVER (PARTITION BY rdt.tags ORDER BY pj.initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC, pj.created_at ASC) AS queue_position,
+		-- Keep in sync with the ordering of AcquireProvisionerJob.
+		ROW_NUMBER() OVER (PARTITION BY rdt.tags ORDER BY pj.releases_capacity DESC, pj.initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC, pj.created_at ASC) AS queue_position,
 		COUNT(*) OVER (PARTITION BY rdt.tags) AS queue_size
 	FROM
 		pending_jobs pj
@@ -145,22 +249,49 @@ ORDER BY
 -- name: GetProvisionerJobsByOrganizationAndStatusWithQueuePositionAndProvisioner :many
 WITH pending_jobs AS (
     SELECT
-        id, initiator_id, created_at
+        pending.id, pending.initiator_id, pending.created_at,
+        COALESCE(pending_wb.transition IN ('stop'::workspace_transition, 'delete'::workspace_transition), false) AS releases_capacity
     FROM
-        provisioner_jobs
+        provisioner_jobs pending
+    LEFT JOIN
+        workspace_builds pending_wb ON pending_wb.job_id = pending.id
     WHERE
-        started_at IS NULL
+        pending.started_at IS NULL
     AND
-        canceled_at IS NULL
+        pending.canceled_at IS NULL
     AND
-        completed_at IS NULL
+        pending.completed_at IS NULL
     AND
-        error IS NULL
+        pending.error IS NULL
+    -- Managed START builds without a current grant wait for capacity, not
+    -- for a provisioner, so they never take a provisioner queue position.
+    AND NOT EXISTS (
+        SELECT
+            1
+        FROM
+            workspaces pending_w
+        JOIN
+            workspace_admission_templates pending_wat ON pending_wat.template_id = pending_w.template_id
+        WHERE
+            pending_w.id = pending_wb.workspace_id
+            AND pending_wb.transition = 'start'::workspace_transition
+            AND NOT EXISTS (
+                SELECT
+                    1
+                FROM
+                    workspace_build_admissions pending_wba
+                WHERE
+                    pending_wba.job_id = pending.id
+                    AND pending_wba.status = 'granted'::workspace_admission_status
+                    AND pending_wba.grant_expires_at > NOW()
+            )
+    )
 ),
 queue_position AS (
     SELECT
         id,
-        ROW_NUMBER() OVER (ORDER BY initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC, created_at ASC) AS queue_position
+        -- Keep in sync with the ordering of AcquireProvisionerJob.
+        ROW_NUMBER() OVER (ORDER BY releases_capacity DESC, initiator_id = 'c42fdf75-3097-471c-8c33-fb52454d81c0'::uuid ASC, created_at ASC) AS queue_position
     FROM
         pending_jobs
 ),
@@ -312,23 +443,49 @@ WHERE
 	id = $1;
 
 -- name: GetProvisionerJobsToBeReaped :many
+-- A pending managed START whose admission is waiting is a valid capacity wait
+-- and is never reaped. A granted managed START measures its pending time from
+-- the later of the last job update and the grant, so a job that waited for
+-- capacity is not reaped right after it is granted. Keep in sync with the
+-- post-lock recheck in coderd/jobreaper.
 SELECT
-	*
+	pj.*
 FROM
-	provisioner_jobs
+	provisioner_jobs pj
+LEFT JOIN (
+	SELECT
+		wb.job_id,
+		wba.status AS admission_status,
+		wba.granted_at AS admission_granted_at
+	FROM
+		workspace_builds wb
+	JOIN
+		workspaces w ON w.id = wb.workspace_id
+	JOIN
+		workspace_admission_templates wat ON wat.template_id = w.template_id
+	LEFT JOIN
+		workspace_build_admissions wba ON wba.job_id = wb.job_id
+	WHERE
+		wb.transition = 'start'::workspace_transition
+) managed_start ON managed_start.job_id = pj.id
 WHERE
 	(
 		-- If the job has not been started before @pending_since, reap it.
-		updated_at < @pending_since
-		AND started_at IS NULL
-		AND completed_at IS NULL
+		pj.started_at IS NULL
+		AND pj.completed_at IS NULL
+		AND managed_start.admission_status IS DISTINCT FROM 'waiting'::workspace_admission_status
+		AND CASE
+			WHEN managed_start.admission_status = 'granted'::workspace_admission_status
+				THEN GREATEST(pj.updated_at, managed_start.admission_granted_at)
+			ELSE pj.updated_at
+		END < @pending_since::timestamptz
 	)
 	OR
 	(
 		-- If the job has been started but not completed before @hung_since, reap it.
-		updated_at < @hung_since
-		AND started_at IS NOT NULL
-		AND completed_at IS NULL
+		pj.updated_at < @hung_since::timestamptz
+		AND pj.started_at IS NOT NULL
+		AND pj.completed_at IS NULL
 	)
 -- To avoid repeatedly attempting to reap the same jobs, we randomly order and limit to @max_jobs.
 ORDER BY random()

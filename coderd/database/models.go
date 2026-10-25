@@ -535,6 +535,11 @@ const (
 	ApiKeyScopeChatModelConfigUpdate               APIKeyScope = "chat_model_config:update"
 	ApiKeyScopeChatModelConfigDelete               APIKeyScope = "chat_model_config:delete"
 	ApiKeyScopeChatModelConfigShare                APIKeyScope = "chat_model_config:share"
+	ApiKeyScopeWorkspaceAdmission                  APIKeyScope = "workspace_admission:*"
+	ApiKeyScopeWorkspaceAdmissionCreate            APIKeyScope = "workspace_admission:create"
+	ApiKeyScopeWorkspaceAdmissionDelete            APIKeyScope = "workspace_admission:delete"
+	ApiKeyScopeWorkspaceAdmissionRead              APIKeyScope = "workspace_admission:read"
+	ApiKeyScopeWorkspaceAdmissionUpdate            APIKeyScope = "workspace_admission:update"
 )
 
 func (e *APIKeyScope) Scan(src interface{}) error {
@@ -821,7 +826,12 @@ func (e APIKeyScope) Valid() bool {
 		ApiKeyScopeChatModelConfigRead,
 		ApiKeyScopeChatModelConfigUpdate,
 		ApiKeyScopeChatModelConfigDelete,
-		ApiKeyScopeChatModelConfigShare:
+		ApiKeyScopeChatModelConfigShare,
+		ApiKeyScopeWorkspaceAdmission,
+		ApiKeyScopeWorkspaceAdmissionCreate,
+		ApiKeyScopeWorkspaceAdmissionDelete,
+		ApiKeyScopeWorkspaceAdmissionRead,
+		ApiKeyScopeWorkspaceAdmissionUpdate:
 		return true
 	}
 	return false
@@ -1077,6 +1087,11 @@ func AllAPIKeyScopeValues() []APIKeyScope {
 		ApiKeyScopeChatModelConfigUpdate,
 		ApiKeyScopeChatModelConfigDelete,
 		ApiKeyScopeChatModelConfigShare,
+		ApiKeyScopeWorkspaceAdmission,
+		ApiKeyScopeWorkspaceAdmissionCreate,
+		ApiKeyScopeWorkspaceAdmissionDelete,
+		ApiKeyScopeWorkspaceAdmissionRead,
+		ApiKeyScopeWorkspaceAdmissionUpdate,
 	}
 }
 
@@ -4129,6 +4144,77 @@ func AllUserStatusValues() []UserStatus {
 	}
 }
 
+// Lifecycle of a workspace START admission request: waiting for capacity, granted by the controller, acquired by a provisioner, or ended by rejection, cancellation or revocation.
+type WorkspaceAdmissionStatus string
+
+const (
+	WorkspaceAdmissionStatusWaiting  WorkspaceAdmissionStatus = "waiting"
+	WorkspaceAdmissionStatusGranted  WorkspaceAdmissionStatus = "granted"
+	WorkspaceAdmissionStatusAcquired WorkspaceAdmissionStatus = "acquired"
+	WorkspaceAdmissionStatusRejected WorkspaceAdmissionStatus = "rejected"
+	WorkspaceAdmissionStatusCanceled WorkspaceAdmissionStatus = "canceled"
+	WorkspaceAdmissionStatusRevoked  WorkspaceAdmissionStatus = "revoked"
+)
+
+func (e *WorkspaceAdmissionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = WorkspaceAdmissionStatus(s)
+	case string:
+		*e = WorkspaceAdmissionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for WorkspaceAdmissionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullWorkspaceAdmissionStatus struct {
+	WorkspaceAdmissionStatus WorkspaceAdmissionStatus `json:"workspace_admission_status"`
+	Valid                    bool                     `json:"valid"` // Valid is true if WorkspaceAdmissionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullWorkspaceAdmissionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.WorkspaceAdmissionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.WorkspaceAdmissionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullWorkspaceAdmissionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.WorkspaceAdmissionStatus), nil
+}
+
+func (e WorkspaceAdmissionStatus) Valid() bool {
+	switch e {
+	case WorkspaceAdmissionStatusWaiting,
+		WorkspaceAdmissionStatusGranted,
+		WorkspaceAdmissionStatusAcquired,
+		WorkspaceAdmissionStatusRejected,
+		WorkspaceAdmissionStatusCanceled,
+		WorkspaceAdmissionStatusRevoked:
+		return true
+	}
+	return false
+}
+
+func AllWorkspaceAdmissionStatusValues() []WorkspaceAdmissionStatus {
+	return []WorkspaceAdmissionStatus{
+		WorkspaceAdmissionStatusWaiting,
+		WorkspaceAdmissionStatusGranted,
+		WorkspaceAdmissionStatusAcquired,
+		WorkspaceAdmissionStatusRejected,
+		WorkspaceAdmissionStatusCanceled,
+		WorkspaceAdmissionStatusRevoked,
+	}
+}
+
 type WorkspaceAgentContextBodyKind string
 
 const (
@@ -6531,6 +6617,38 @@ type Workspace struct {
 	UserACLDisplayInfo      WorkspaceACLDisplayInfo `db:"user_acl_display_info" json:"user_acl_display_info"`
 }
 
+// Profiles a user may request when starting workspaces of a managed template. Checked synchronously when the START build is created.
+type WorkspaceAdmissionEntitlement struct {
+	UserID          uuid.UUID `db:"user_id" json:"user_id"`
+	TemplateID      uuid.UUID `db:"template_id" json:"template_id"`
+	OrganizationID  uuid.UUID `db:"organization_id" json:"organization_id"`
+	AllowedProfiles []string  `db:"allowed_profiles" json:"allowed_profiles"`
+	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
+}
+
+// STOP builds created through the workspace admission service, keyed by the controller operation ID for idempotent retries.
+type WorkspaceAdmissionStopOperation struct {
+	OperationID      uuid.UUID `db:"operation_id" json:"operation_id"`
+	WorkspaceID      uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	WorkspaceBuildID uuid.UUID `db:"workspace_build_id" json:"workspace_build_id"`
+	JobID            uuid.UUID `db:"job_id" json:"job_id"`
+	OrganizationID   uuid.UUID `db:"organization_id" json:"organization_id"`
+	// Pending START job that was canceled before it was acquired so the STOP build could be created.
+	CanceledJobID uuid.NullUUID `db:"canceled_job_id" json:"canceled_job_id"`
+	Reason        string        `db:"reason" json:"reason"`
+	CreatedAt     time.Time     `db:"created_at" json:"created_at"`
+}
+
+// Templates whose START builds require a workspace admission grant before a provisioner may acquire them.
+type WorkspaceAdmissionTemplate struct {
+	TemplateID     uuid.UUID `db:"template_id" json:"template_id"`
+	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
+	// Name of the build parameter whose value selects the resource profile of a START build.
+	ProfileParameter string    `db:"profile_parameter" json:"profile_parameter"`
+	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt        time.Time `db:"updated_at" json:"updated_at"`
+}
+
 type WorkspaceAgent struct {
 	ID                   uuid.UUID             `db:"id" json:"id"`
 	CreatedAt            time.Time             `db:"created_at" json:"created_at"`
@@ -6845,6 +6963,36 @@ type WorkspaceBuild struct {
 	InitiatorByAvatarUrl     string              `db:"initiator_by_avatar_url" json:"initiator_by_avatar_url"`
 	InitiatorByUsername      string              `db:"initiator_by_username" json:"initiator_by_username"`
 	InitiatorByName          string              `db:"initiator_by_name" json:"initiator_by_name"`
+}
+
+// Admission state of START builds on managed templates. A provisioner may acquire a managed START only while its row is granted, unexpired and matches the build.
+type WorkspaceBuildAdmission struct {
+	JobID             uuid.UUID `db:"job_id" json:"job_id"`
+	WorkspaceBuildID  uuid.UUID `db:"workspace_build_id" json:"workspace_build_id"`
+	WorkspaceID       uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	OrganizationID    uuid.UUID `db:"organization_id" json:"organization_id"`
+	OwnerID           uuid.UUID `db:"owner_id" json:"owner_id"`
+	TemplateID        uuid.UUID `db:"template_id" json:"template_id"`
+	TemplateVersionID uuid.UUID `db:"template_version_id" json:"template_version_id"`
+	// Resource profile resolved from the template profile parameter when the build was created.
+	Profile string                   `db:"profile" json:"profile"`
+	Status  WorkspaceAdmissionStatus `db:"status" json:"status"`
+	// Human readable waiting or decision reason shown to users, for example waiting_for_capacity.
+	Reason string `db:"reason" json:"reason"`
+	// Capacity queue position reported by the controller. Unrelated to the provisioner queue position.
+	QueuePosition sql.NullInt32 `db:"queue_position" json:"queue_position"`
+	OperationID   uuid.NullUUID `db:"operation_id" json:"operation_id"`
+	ReservationID uuid.NullUUID `db:"reservation_id" json:"reservation_id"`
+	Generation    sql.NullInt64 `db:"generation" json:"generation"`
+	// A granted row stops authorizing acquisition after this time unless the controller refreshes the grant.
+	GrantExpiresAt sql.NullTime `db:"grant_expires_at" json:"grant_expires_at"`
+	// When the START build entered the capacity queue. The job reaper never measures capacity waits from this time.
+	QueuedAt time.Time `db:"queued_at" json:"queued_at"`
+	// When the current grant was first recorded. The job reaper measures pending time of granted jobs from here.
+	GrantedAt  sql.NullTime `db:"granted_at" json:"granted_at"`
+	AcquiredAt sql.NullTime `db:"acquired_at" json:"acquired_at"`
+	DecidedAt  sql.NullTime `db:"decided_at" json:"decided_at"`
+	UpdatedAt  time.Time    `db:"updated_at" json:"updated_at"`
 }
 
 // Tracks durable follow-up workspace build operations, such as server-side restart, where one child build is created after a parent build completes successfully.

@@ -15,6 +15,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
 	"github.com/coder/coder/v2/coderd/database/dbtime"
 	"github.com/coder/coder/v2/coderd/database/pubsub"
+	"github.com/coder/coder/v2/coderd/workspaceadmission"
 	"github.com/coder/coder/v2/provisionersdk"
 )
 
@@ -235,7 +236,10 @@ func (d *Detector) run(t time.Time) Stats {
 }
 
 func reapJob(ctx context.Context, log slog.Logger, db database.Store, pub pubsub.Pubsub, jobToReap *jobToReap) error {
-	var lowestLogID int64
+	var (
+		lowestLogID      int64
+		admissionRevoked bool
+	)
 
 	err := db.InTx(func(db database.Store) error {
 		// Refetch the job while we hold the lock.
@@ -252,7 +256,34 @@ func reapJob(ctx context.Context, log slog.Logger, db database.Store, pub pubsub
 				Err: xerrors.Errorf("job is completed (status %s)", job.JobStatus),
 			}
 		}
-		if job.UpdatedAt.After(time.Now().Add(-jobToReap.Threshold)) {
+
+		// Keep in sync with GetProvisionerJobsToBeReaped. A pending managed
+		// START that waits for workspace admission capacity is a valid wait
+		// and is never reaped. A granted one measures its pending time from
+		// the later of the last job update and the grant.
+		lastUpdate := job.UpdatedAt
+		grantedAdmission := false
+		if !job.StartedAt.Valid {
+			admission, err := db.GetWorkspaceAdmissionStateByJobID(ctx, job.ID)
+			if err != nil {
+				return xerrors.Errorf("get workspace admission state: %w", err)
+			}
+			if admission.ManagedStart && admission.AdmissionStatus.Valid {
+				switch admission.AdmissionStatus.WorkspaceAdmissionStatus {
+				case database.WorkspaceAdmissionStatusWaiting:
+					return jobIneligibleError{
+						Err: xerrors.New("job is waiting for workspace admission capacity"),
+					}
+				case database.WorkspaceAdmissionStatusGranted:
+					grantedAdmission = true
+					if admission.AdmissionGrantedAt.Valid && admission.AdmissionGrantedAt.Time.After(lastUpdate) {
+						lastUpdate = admission.AdmissionGrantedAt.Time
+					}
+				}
+			}
+		}
+
+		if lastUpdate.After(time.Now().Add(-jobToReap.Threshold)) {
 			return jobIneligibleError{
 				Err: xerrors.New("job has been updated recently"),
 			}
@@ -337,6 +368,22 @@ func reapJob(ctx context.Context, log slog.Logger, db database.Store, pub pubsub
 			return xerrors.Errorf("mark job as failed: %w", err)
 		}
 
+		// A granted START that no provisioner acquired will never run, so
+		// revoke its admission and let the controller release the
+		// reservation.
+		if grantedAdmission {
+			_, err = db.UpdatePendingWorkspaceBuildAdmissionStatus(ctx, database.UpdatePendingWorkspaceBuildAdmissionStatusParams{
+				JobID:  job.ID,
+				Status: database.WorkspaceAdmissionStatusRevoked,
+				Reason: workspaceadmission.ReasonProvisionerTimeout,
+				Now:    now,
+			})
+			if err != nil && !xerrors.Is(err, sql.ErrNoRows) {
+				return xerrors.Errorf("revoke workspace build admission: %w", err)
+			}
+			admissionRevoked = err == nil
+		}
+
 		// If the provisioner job is a workspace build, copy the
 		// provisioner state from the previous build to this workspace
 		// build.
@@ -396,6 +443,12 @@ func reapJob(ctx context.Context, log slog.Logger, db database.Store, pub pubsub
 	err = pub.Publish(provisionersdk.ProvisionerJobLogsNotifyChannel(jobToReap.ID), data)
 	if err != nil {
 		return xerrors.Errorf("publish log notification: %w", err)
+	}
+
+	if admissionRevoked {
+		if err := workspaceadmission.Publish(pub, jobToReap.ID); err != nil {
+			log.Warn(ctx, "failed to publish workspace admission event", slog.Error(err))
+		}
 	}
 
 	return nil

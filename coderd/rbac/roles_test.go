@@ -992,6 +992,17 @@ func TestRolePermissions(t *testing.T) {
 			},
 		},
 		{
+			// Only the workspace admission service and internal system
+			// subjects manage admission state.
+			Name:     "WorkspaceAdmission",
+			Actions:  crud,
+			Resource: rbac.ResourceWorkspaceAdmission.InOrg(orgID),
+			AuthorizeMap: map[bool][]hasAuthSubjects{
+				true:  {},
+				false: {owner, setOrgNotMe, setOtherOrg, memberMe, templateAdmin, userAdmin, orgWorkspaceAccessUser},
+			},
+		},
+		{
 			// Any owner/admin across may access any users' preferences
 			// Members may not access other members' preferences
 			Name:     "NotificationPreferencesOwn",

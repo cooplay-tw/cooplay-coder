@@ -170,6 +170,10 @@ const (
 	ScopeWorkspaceStop                       ScopeName = "workspace:stop"
 	ScopeWorkspaceUpdate                     ScopeName = "workspace:update"
 	ScopeWorkspaceUpdateAgent                ScopeName = "workspace:update_agent"
+	ScopeWorkspaceAdmissionCreate            ScopeName = "workspace_admission:create"
+	ScopeWorkspaceAdmissionDelete            ScopeName = "workspace_admission:delete"
+	ScopeWorkspaceAdmissionRead              ScopeName = "workspace_admission:read"
+	ScopeWorkspaceAdmissionUpdate            ScopeName = "workspace_admission:update"
 	ScopeWorkspaceAgentDevcontainersCreate   ScopeName = "workspace_agent_devcontainers:create"
 	ScopeWorkspaceAgentResourceMonitorCreate ScopeName = "workspace_agent_resource_monitor:create"
 	ScopeWorkspaceAgentResourceMonitorRead   ScopeName = "workspace_agent_resource_monitor:read"
@@ -368,6 +372,10 @@ func (e ScopeName) Valid() bool {
 		ScopeWorkspaceStop,
 		ScopeWorkspaceUpdate,
 		ScopeWorkspaceUpdateAgent,
+		ScopeWorkspaceAdmissionCreate,
+		ScopeWorkspaceAdmissionDelete,
+		ScopeWorkspaceAdmissionRead,
+		ScopeWorkspaceAdmissionUpdate,
 		ScopeWorkspaceAgentDevcontainersCreate,
 		ScopeWorkspaceAgentResourceMonitorCreate,
 		ScopeWorkspaceAgentResourceMonitorRead,
@@ -567,6 +575,10 @@ func AllScopeNameValues() []ScopeName {
 		ScopeWorkspaceStop,
 		ScopeWorkspaceUpdate,
 		ScopeWorkspaceUpdateAgent,
+		ScopeWorkspaceAdmissionCreate,
+		ScopeWorkspaceAdmissionDelete,
+		ScopeWorkspaceAdmissionRead,
+		ScopeWorkspaceAdmissionUpdate,
 		ScopeWorkspaceAgentDevcontainersCreate,
 		ScopeWorkspaceAgentResourceMonitorCreate,
 		ScopeWorkspaceAgentResourceMonitorRead,

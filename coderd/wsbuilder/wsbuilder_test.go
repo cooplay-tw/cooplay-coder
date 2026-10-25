@@ -1269,6 +1269,11 @@ func withTemplate(mTx *dbmock.MockStore) {
 			ActiveVersionID:         activeVersionID,
 			UseClassicParameterFlow: true,
 		}, nil)
+	// The template is not managed by workspace admission. Only START builds
+	// look this up.
+	mTx.EXPECT().GetWorkspaceAdmissionTemplateByTemplateID(gomock.Any(), templateID).
+		AnyTimes().
+		Return(database.WorkspaceAdmissionTemplate{}, sql.ErrNoRows)
 }
 
 // withInTx runs the given functions on the same db mock.
