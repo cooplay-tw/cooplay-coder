@@ -135,6 +135,11 @@ const (
 	WorkspaceBuildAdmissionStatusRevoked WorkspaceBuildAdmissionStatus = "revoked"
 )
 
+// WorkspaceBuildAdmissionReasonWaitingForCapacity is the reason of a build
+// that waits for capacity until the capacity controller reports a more
+// specific one. It restates the waiting status, so clients need not show it.
+const WorkspaceBuildAdmissionReasonWaitingForCapacity = "waiting_for_capacity"
+
 // WorkspaceBuildAdmission is the capacity admission state of a workspace
 // START build on a template managed by workspace admission.
 type WorkspaceBuildAdmission struct {

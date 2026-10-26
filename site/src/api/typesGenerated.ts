@@ -11645,6 +11645,15 @@ export interface WorkspaceBuildAdmission {
 }
 
 // From codersdk/workspacebuilds.go
+/**
+ * WorkspaceBuildAdmissionReasonWaitingForCapacity is the reason of a build
+ * that waits for capacity until the capacity controller reports a more
+ * specific one. It restates the waiting status, so clients need not show it.
+ */
+export const WorkspaceBuildAdmissionReasonWaitingForCapacity =
+	"waiting_for_capacity";
+
+// From codersdk/workspacebuilds.go
 export type WorkspaceBuildAdmissionStatus =
 	| "acquired"
 	| "canceled"

@@ -20,9 +20,8 @@ import (
 
 func WorkspaceBuild(ctx context.Context, writer io.Writer, client *codersdk.Client, build uuid.UUID) error {
 	return ProvisionerJob(ctx, writer, ProvisionerJobOptions{
-		Fetch: func() (codersdk.ProvisionerJob, error) {
-			build, err := client.WorkspaceBuild(ctx, build)
-			return build.Job, err
+		FetchBuild: func() (codersdk.WorkspaceBuild, error) {
+			return client.WorkspaceBuild(ctx, build)
 		},
 		Logs: func() (<-chan codersdk.ProvisionerJobLog, io.Closer, error) {
 			return client.WorkspaceBuildLogsAfter(ctx, build, 0)
@@ -34,6 +33,11 @@ type ProvisionerJobOptions struct {
 	Fetch  func() (codersdk.ProvisionerJob, error)
 	Cancel func() error
 	Logs   func() (<-chan codersdk.ProvisionerJobLog, io.Closer, error)
+
+	// FetchBuild fetches the workspace build that owns the job. When set, it
+	// is used instead of Fetch, and capacity waits of builds on templates
+	// managed by workspace admission are reported as well.
+	FetchBuild func() (codersdk.WorkspaceBuild, error)
 
 	FetchInterval time.Duration
 	// Verbose determines whether debug and trace logs will be shown.
@@ -72,9 +76,11 @@ func ProvisionerJob(ctx context.Context, wr io.Writer, opts ProvisionerJobOption
 		currentStageStartedAt = time.Now().UTC()
 		currentQueuePos       = -1
 
-		errChan  = make(chan error, 1)
-		job      codersdk.ProvisionerJob
-		jobMutex sync.Mutex
+		errChan          = make(chan error, 1)
+		job              codersdk.ProvisionerJob
+		admission        *codersdk.WorkspaceBuildAdmission
+		printedAdmission string
+		jobMutex         sync.Mutex
 	)
 
 	sw := &stageWriter{w: wr, verbose: opts.Verbose, silentLogs: opts.Silent}
@@ -94,6 +100,26 @@ func ProvisionerJob(ctx context.Context, wr io.Writer, opts ProvisionerJobOption
 		}
 
 		sw.Start(out)
+	}
+
+	// printAdmission reports a capacity wait whenever its message changes,
+	// so the reason and the capacity queue position stay current.
+	printAdmission := func() {
+		msg, style := admissionMessage(job, admission)
+		if msg == "" || msg == printedAdmission {
+			return
+		}
+		printedAdmission = msg
+		pretty.Fprintf(wr, style, "%s\n", msg)
+	}
+
+	fetch := func() (codersdk.ProvisionerJob, *codersdk.WorkspaceBuildAdmission, error) {
+		if opts.FetchBuild != nil {
+			build, err := opts.FetchBuild()
+			return build.Job, build.Admission, err
+		}
+		fetched, err := opts.Fetch()
+		return fetched, nil, err
 	}
 
 	updateStage := func(stage string, startedAt time.Time) {
@@ -117,14 +143,17 @@ func ProvisionerJob(ctx context.Context, wr io.Writer, opts ProvisionerJobOption
 		var err error
 		jobMutex.Lock()
 		defer jobMutex.Unlock()
-		job, err = opts.Fetch()
+		job, admission, err = fetch()
 		if err != nil {
 			errChan <- xerrors.Errorf("fetch: %w", err)
 			return
 		}
+		initialState := currentQueuePos == -1
+		// The initial capacity wait prints after the initial stage.
+		if !initialState {
+			printAdmission()
+		}
 		if job.QueuePosition != currentQueuePos {
-			initialState := currentQueuePos == -1
-
 			currentQueuePos = job.QueuePosition
 			// Print an update when the queue position changes, but:
 			//   - not initially, because the stage is printed at startup
@@ -175,6 +204,9 @@ func ProvisionerJob(ctx context.Context, wr io.Writer, opts ProvisionerJobOption
 	// The initial stage needs to print after the signal handler has been registered.
 	updateJob()
 	printStage()
+	jobMutex.Lock()
+	printAdmission()
+	jobMutex.Unlock()
 
 	logs, closer, err := opts.Logs()
 	if err != nil {
@@ -228,6 +260,43 @@ func ProvisionerJob(ctx context.Context, wr io.Writer, opts ProvisionerJobOption
 			sw.Log(log.CreatedAt, log.Level, log.Output)
 			jobMutex.Unlock()
 		}
+	}
+}
+
+// admissionMessage describes the capacity admission of a workspace build. It
+// returns an empty message when there is nothing to report, for example for
+// builds that do not need admission or once a provisioner acquired the build.
+func admissionMessage(job codersdk.ProvisionerJob, admission *codersdk.WorkspaceBuildAdmission) (string, pretty.Style) {
+	if admission == nil {
+		return "", nil
+	}
+	switch admission.Status {
+	case codersdk.WorkspaceBuildAdmissionStatusWaiting:
+		if job.Status != codersdk.ProvisionerJobPending {
+			return "", nil
+		}
+		msg := "Waiting for capacity"
+		// The default reason only restates the message.
+		if admission.Reason != "" && admission.Reason != codersdk.WorkspaceBuildAdmissionReasonWaitingForCapacity {
+			msg += ": " + admission.Reason
+		}
+		if admission.QueuePosition != nil {
+			msg += fmt.Sprintf(" (queue position %d)", *admission.QueuePosition)
+		}
+		return msg, DefaultStyles.Warn
+	case codersdk.WorkspaceBuildAdmissionStatusGranted:
+		if job.Status != codersdk.ProvisionerJobPending {
+			return "", nil
+		}
+		return "Capacity granted; waiting for a provisioner", nil
+	case codersdk.WorkspaceBuildAdmissionStatusRejected:
+		msg := "Capacity request rejected"
+		if admission.Reason != "" {
+			msg += ": " + admission.Reason
+		}
+		return msg, DefaultStyles.Error
+	default:
+		return "", nil
 	}
 }
 

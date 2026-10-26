@@ -20,12 +20,13 @@ import (
 
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/pubsub"
+	"github.com/coder/coder/v2/codersdk"
 )
 
 const (
 	// ReasonWaitingForCapacity is the waiting reason of a START build that
 	// the controller has not granted yet.
-	ReasonWaitingForCapacity = "waiting_for_capacity"
+	ReasonWaitingForCapacity = codersdk.WorkspaceBuildAdmissionReasonWaitingForCapacity
 	// ReasonCanceled is recorded when a pending START is canceled before a
 	// provisioner acquired it.
 	ReasonCanceled = "canceled_before_start"

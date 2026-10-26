@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/coder/coder/v2/cli/cliui"
 	"github.com/coder/coder/v2/coderd/database/dbtime"
@@ -163,6 +164,127 @@ func TestProvisionerJob(t *testing.T) {
 		}
 	})
 
+	t.Run("CapacityWait", func(t *testing.T) {
+		t.Parallel()
+
+		position := func(p int) *int { return &p }
+		test := newWorkspaceBuildJob(t, &codersdk.WorkspaceBuildAdmission{
+			Status:        codersdk.WorkspaceBuildAdmissionStatusWaiting,
+			Reason:        codersdk.WorkspaceBuildAdmissionReasonWaitingForCapacity,
+			QueuePosition: position(2),
+			QueuedAt:      dbtime.Now(),
+		})
+		ctx := testutil.Context(t, testutil.WaitShort)
+
+		testutil.Go(t, func() {
+			<-test.Next
+			test.JobMutex.Lock()
+			test.Build.Admission.Reason = "2 workspaces ahead of you"
+			test.Build.Admission.QueuePosition = position(1)
+			test.JobMutex.Unlock()
+			<-test.Next
+			test.JobMutex.Lock()
+			now := dbtime.Now()
+			test.Build.Admission.Status = codersdk.WorkspaceBuildAdmissionStatusGranted
+			test.Build.Admission.Reason = ""
+			test.Build.Admission.QueuePosition = nil
+			test.Build.Admission.GrantedAt = &now
+			// Once granted, the build competes for a provisioner.
+			test.Job.QueuePosition = 1
+			test.Job.QueueSize = 1
+			test.JobMutex.Unlock()
+			<-test.Next
+			test.JobMutex.Lock()
+			now = dbtime.Now()
+			test.Build.Admission.Status = codersdk.WorkspaceBuildAdmissionStatusAcquired
+			test.Job.Status = codersdk.ProvisionerJobRunning
+			test.Job.StartedAt = &now
+			test.JobMutex.Unlock()
+			<-test.Next
+			test.JobMutex.Lock()
+			now = dbtime.Now()
+			test.Job.Status = codersdk.ProvisionerJobSucceeded
+			test.Job.CompletedAt = &now
+			close(test.Logs)
+			test.JobMutex.Unlock()
+		})
+
+		test.Stdout.ExpectMatch(ctx, cliui.ProvisioningStateQueued)
+		// The default reason only restates the message.
+		test.Stdout.ExpectRegexMatch(ctx, `Waiting for capacity \(queue position 2\)\r?\n`)
+		test.Next <- struct{}{}
+		test.Stdout.ExpectMatch(ctx, "Waiting for capacity: 2 workspaces ahead of you (queue position 1)")
+		test.Next <- struct{}{}
+		test.Stdout.ExpectMatch(ctx, "Capacity granted; waiting for a provisioner")
+		test.Stdout.ExpectMatch(ctx, "Queued (next)")
+		test.Next <- struct{}{}
+		test.Stdout.ExpectNoMatchBefore(ctx, "capacity", cliui.ProvisioningStateRunning)
+		test.Next <- struct{}{}
+		require.NoError(t, testutil.RequireReceive(ctx, t, test.Result))
+	})
+
+	t.Run("CapacityRejected", func(t *testing.T) {
+		t.Parallel()
+
+		test := newWorkspaceBuildJob(t, &codersdk.WorkspaceBuildAdmission{
+			Status:   codersdk.WorkspaceBuildAdmissionStatusWaiting,
+			Reason:   codersdk.WorkspaceBuildAdmissionReasonWaitingForCapacity,
+			QueuedAt: dbtime.Now(),
+		})
+		ctx := testutil.Context(t, testutil.WaitShort)
+
+		testutil.Go(t, func() {
+			<-test.Next
+			test.JobMutex.Lock()
+			now := dbtime.Now()
+			test.Build.Admission.Status = codersdk.WorkspaceBuildAdmissionStatusRejected
+			test.Build.Admission.Reason = "quota: profile large is not allowed"
+			test.Job.Status = codersdk.ProvisionerJobFailed
+			test.Job.StartedAt = &now
+			test.Job.CompletedAt = &now
+			test.Job.Error = "admission rejected: quota: profile large is not allowed"
+			close(test.Logs)
+			test.JobMutex.Unlock()
+		})
+
+		test.Stdout.ExpectMatch(ctx, "Waiting for capacity")
+		test.Next <- struct{}{}
+		test.Stdout.ExpectMatch(ctx, "Capacity request rejected: quota: profile large is not allowed")
+		err := testutil.RequireReceive(ctx, t, test.Result)
+		var jobErr *cliui.ProvisionerJobError
+		require.ErrorAs(t, err, &jobErr)
+		require.Equal(t, "admission rejected: quota: profile large is not allowed", jobErr.Message)
+	})
+
+	t.Run("BuildWithoutAdmission", func(t *testing.T) {
+		t.Parallel()
+
+		test := newWorkspaceBuildJob(t, nil)
+		ctx := testutil.Context(t, testutil.WaitShort)
+
+		testutil.Go(t, func() {
+			<-test.Next
+			test.JobMutex.Lock()
+			now := dbtime.Now()
+			test.Job.Status = codersdk.ProvisionerJobRunning
+			test.Job.StartedAt = &now
+			test.JobMutex.Unlock()
+			<-test.Next
+			test.JobMutex.Lock()
+			now = dbtime.Now()
+			test.Job.Status = codersdk.ProvisionerJobSucceeded
+			test.Job.CompletedAt = &now
+			close(test.Logs)
+			test.JobMutex.Unlock()
+		})
+
+		test.Stdout.ExpectMatch(ctx, cliui.ProvisioningStateQueued)
+		test.Next <- struct{}{}
+		test.Stdout.ExpectNoMatchBefore(ctx, "Waiting for capacity", cliui.ProvisioningStateRunning)
+		test.Next <- struct{}{}
+		require.NoError(t, testutil.RequireReceive(ctx, t, test.Result))
+	})
+
 	// This cannot be ran in parallel because it uses a signal.
 	// nolint:paralleltest
 	t.Run("Cancel", func(t *testing.T) {
@@ -209,55 +331,95 @@ type provisionerJobTest struct {
 	JobMutex *sync.Mutex
 	Logs     chan codersdk.ProvisionerJobLog
 	Stdout   *expecter.Expecter
+	// Build is the workspace build that owns Job. Only workspace build
+	// watches see its admission.
+	Build *codersdk.WorkspaceBuild
+	// Result receives the error of a workspace build watch.
+	Result chan error
 }
 
 func newProvisionerJob(t *testing.T) provisionerJobTest {
-	job := &codersdk.ProvisionerJob{
-		Status:    codersdk.ProvisionerJobPending,
-		CreatedAt: dbtime.Now(),
+	test := startProvisionerJob(t, nil, func(opts *cliui.ProvisionerJobOptions, snapshot func() codersdk.WorkspaceBuild) {
+		opts.Fetch = func() (codersdk.ProvisionerJob, error) {
+			return snapshot().Job, nil
+		}
+	})
+	t.Cleanup(func() {
+		err := <-test.Result
+		if err != nil {
+			assert.ErrorIs(t, err, cliui.ErrCanceled)
+		}
+	})
+	return test
+}
+
+// newWorkspaceBuildJob watches a workspace build with the given admission.
+// The test must receive the watch result from Result.
+func newWorkspaceBuildJob(t *testing.T, admission *codersdk.WorkspaceBuildAdmission) provisionerJobTest {
+	return startProvisionerJob(t, admission, func(opts *cliui.ProvisionerJobOptions, snapshot func() codersdk.WorkspaceBuild) {
+		opts.FetchBuild = func() (codersdk.WorkspaceBuild, error) {
+			return snapshot(), nil
+		}
+	})
+}
+
+// startProvisionerJob runs a job watch whose fetch function setFetch installs
+// from a snapshot of the build under test.
+func startProvisionerJob(
+	t *testing.T,
+	admission *codersdk.WorkspaceBuildAdmission,
+	setFetch func(opts *cliui.ProvisionerJobOptions, snapshot func() codersdk.WorkspaceBuild),
+) provisionerJobTest {
+	build := &codersdk.WorkspaceBuild{
+		Job: codersdk.ProvisionerJob{
+			Status:    codersdk.ProvisionerJobPending,
+			CreatedAt: dbtime.Now(),
+		},
+		Admission: admission,
 	}
 	jobLock := sync.Mutex{}
 	logs := make(chan codersdk.ProvisionerJobLog, 1)
+	opts := cliui.ProvisionerJobOptions{
+		FetchInterval: time.Millisecond,
+		Cancel: func() error {
+			return nil
+		},
+		Logs: func() (<-chan codersdk.ProvisionerJobLog, io.Closer, error) {
+			return logs, closeFunc(func() error {
+				return nil
+			}), nil
+		},
+	}
+	setFetch(&opts, func() codersdk.WorkspaceBuild {
+		jobLock.Lock()
+		defer jobLock.Unlock()
+		snapshot := *build
+		if build.Admission != nil {
+			copied := *build.Admission
+			snapshot.Admission = &copied
+		}
+		return snapshot
+	})
 	cmd := &serpent.Command{
 		Handler: func(inv *serpent.Invocation) error {
-			return cliui.ProvisionerJob(inv.Context(), inv.Stdout, cliui.ProvisionerJobOptions{
-				FetchInterval: time.Millisecond,
-				Fetch: func() (codersdk.ProvisionerJob, error) {
-					jobLock.Lock()
-					defer jobLock.Unlock()
-					return *job, nil
-				},
-				Cancel: func() error {
-					return nil
-				},
-				Logs: func() (<-chan codersdk.ProvisionerJobLog, io.Closer, error) {
-					return logs, closeFunc(func() error {
-						return nil
-					}), nil
-				},
-			})
+			return cliui.ProvisionerJob(inv.Context(), inv.Stdout, opts)
 		},
 	}
 	inv := cmd.Invoke()
 
 	stdout := expecter.NewAttachedToInvocation(t, inv)
-	done := make(chan struct{})
+	result := make(chan error, 1)
 	go func() {
-		defer close(done)
-		err := inv.WithContext(context.Background()).Run()
-		if err != nil {
-			assert.ErrorIs(t, err, cliui.ErrCanceled)
-		}
+		result <- inv.WithContext(context.Background()).Run()
 	}()
-	t.Cleanup(func() {
-		<-done
-	})
 	return provisionerJobTest{
 		Next:     make(chan struct{}),
-		Job:      job,
+		Job:      &build.Job,
 		JobMutex: &jobLock,
 		Logs:     logs,
 		Stdout:   stdout,
+		Build:    build,
+		Result:   result,
 	}
 }
 
