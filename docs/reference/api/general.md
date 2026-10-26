@@ -671,6 +671,10 @@ curl -X GET http://coder-server:8080/api/v2/deployment/config \
     "web_terminal_renderer": "string",
     "wgtunnel_host": "string",
     "wildcard_access_url": "string",
+    "workspace_admission": {
+      "listen_address": "string",
+      "token_hash_file": "string"
+    },
     "workspace_hostname_suffix": "string",
     "workspace_prebuilds": {
       "failure_hard_limit": 0,

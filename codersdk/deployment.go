@@ -753,6 +753,7 @@ type DeploymentValues struct {
 	AI                                      AIConfig                             `json:"ai,omitempty"`
 	StatsCollection                         StatsCollectionConfig                `json:"stats_collection,omitempty" typescript:",notnull"`
 	TemplateBuilder                         TemplateBuilderConfig                `json:"template_builder,omitempty"`
+	WorkspaceAdmission                      WorkspaceAdmissionConfig             `json:"workspace_admission,omitempty" typescript:",notnull"`
 
 	Config      serpent.YAMLConfigPath `json:"config,omitempty" typescript:",notnull"`
 	WriteConfig serpent.Bool           `json:"write_config,omitempty" typescript:",notnull"`
@@ -4984,6 +4985,24 @@ Write out the current server config as YAML to stdout.`,
 			Group:       &deploymentGroupTemplateBuilder,
 			YAML:        "registryURL",
 		},
+		{
+			Name:        "Workspace Admission Listen Address",
+			Description: "The bind address of the restricted workspace admission API used by an external capacity controller. The API never runs on the main listener. Empty disables it.",
+			Flag:        "workspace-admission-listen-address",
+			Env:         "CODER_WORKSPACE_ADMISSION_LISTEN_ADDRESS",
+			Value:       &c.WorkspaceAdmission.ListenAddress,
+			Default:     "",
+			Hidden:      true,
+		},
+		{
+			Name:        "Workspace Admission Token Hash File",
+			Description: "Path to a file containing sha256:<hex> of the bearer token that the workspace admission API accepts. Required when the workspace admission listener is enabled.",
+			Flag:        "workspace-admission-token-hash-file",
+			Env:         "CODER_WORKSPACE_ADMISSION_TOKEN_HASH_FILE",
+			Value:       &c.WorkspaceAdmission.TokenHashFile,
+			Default:     "",
+			Hidden:      true,
+		},
 	}
 
 	return opts
@@ -5108,6 +5127,12 @@ type AIConfig struct {
 	BridgeConfig      AIBridgeConfig      `json:"bridge,omitempty"`
 	BridgeProxyConfig AIBridgeProxyConfig `json:"aibridge_proxy,omitempty"`
 	Chat              ChatConfig          `json:"chat,omitempty" typescript:",notnull"`
+}
+
+// WorkspaceAdmissionConfig configures the restricted workspace admission API.
+type WorkspaceAdmissionConfig struct {
+	ListenAddress serpent.String `json:"listen_address" typescript:",notnull"`
+	TokenHashFile serpent.String `json:"token_hash_file" typescript:",notnull"`
 }
 
 type TemplateBuilderConfig struct {

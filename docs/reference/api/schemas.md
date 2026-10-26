@@ -7971,6 +7971,10 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
     "web_terminal_renderer": "string",
     "wgtunnel_host": "string",
     "wildcard_access_url": "string",
+    "workspace_admission": {
+      "listen_address": "string",
+      "token_hash_file": "string"
+    },
     "workspace_hostname_suffix": "string",
     "workspace_prebuilds": {
       "failure_hard_limit": 0,
@@ -8599,6 +8603,10 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
   "web_terminal_renderer": "string",
   "wgtunnel_host": "string",
   "wildcard_access_url": "string",
+  "workspace_admission": {
+    "listen_address": "string",
+    "token_hash_file": "string"
+  },
   "workspace_hostname_suffix": "string",
   "workspace_prebuilds": {
     "failure_hard_limit": 0,
@@ -8686,6 +8694,7 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
 | `web_terminal_renderer`                        | string                                                                                               | false    |              |                                                                    |
 | `wgtunnel_host`                                | string                                                                                               | false    |              |                                                                    |
 | `wildcard_access_url`                          | string                                                                                               | false    |              |                                                                    |
+| `workspace_admission`                          | [codersdk.WorkspaceAdmissionConfig](#codersdkworkspaceadmissionconfig)                               | false    |              |                                                                    |
 | `workspace_hostname_suffix`                    | string                                                                                               | false    |              |                                                                    |
 | `workspace_prebuilds`                          | [codersdk.PrebuildsConfig](#codersdkprebuildsconfig)                                                 | false    |              |                                                                    |
 | `write_config`                                 | boolean                                                                                              | false    |              |                                                                    |
@@ -17599,6 +17608,22 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 |---------|-------------------------------------------------------------|----------|--------------|-------------|
 | `group` | array of [codersdk.WorkspaceGroup](#codersdkworkspacegroup) | false    |              |             |
 | `users` | array of [codersdk.WorkspaceUser](#codersdkworkspaceuser)   | false    |              |             |
+
+## codersdk.WorkspaceAdmissionConfig
+
+```json
+{
+  "listen_address": "string",
+  "token_hash_file": "string"
+}
+```
+
+### Properties
+
+| Name              | Type   | Required | Restrictions | Description |
+|-------------------|--------|----------|--------------|-------------|
+| `listen_address`  | string | false    |              |             |
+| `token_hash_file` | string | false    |              |             |
 
 ## codersdk.WorkspaceAgent
 

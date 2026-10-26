@@ -23073,6 +23073,9 @@ const docTemplate = `{
                 "wildcard_access_url": {
                     "type": "string"
                 },
+                "workspace_admission": {
+                    "$ref": "#/definitions/codersdk.WorkspaceAdmissionConfig"
+                },
                 "workspace_hostname_suffix": {
                     "type": "string"
                 },
@@ -30641,6 +30644,17 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/codersdk.WorkspaceUser"
                     }
+                }
+            }
+        },
+        "codersdk.WorkspaceAdmissionConfig": {
+            "type": "object",
+            "properties": {
+                "listen_address": {
+                    "type": "string"
+                },
+                "token_hash_file": {
+                    "type": "string"
                 }
             }
         },

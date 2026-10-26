@@ -4865,6 +4865,7 @@ export interface DeploymentValues {
 	readonly ai?: AIConfig;
 	readonly stats_collection?: StatsCollectionConfig;
 	readonly template_builder?: TemplateBuilderConfig;
+	readonly workspace_admission?: WorkspaceAdmissionConfig;
 	readonly config?: string;
 	readonly write_config?: boolean;
 	/**
@@ -11010,6 +11011,15 @@ export interface Workspace {
 export interface WorkspaceACL {
 	readonly users: readonly WorkspaceUser[];
 	readonly group: readonly WorkspaceGroup[];
+}
+
+// From codersdk/deployment.go
+/**
+ * WorkspaceAdmissionConfig configures the restricted workspace admission API.
+ */
+export interface WorkspaceAdmissionConfig {
+	readonly listen_address: string;
+	readonly token_hash_file: string;
 }
 
 // From codersdk/workspaceagents.go

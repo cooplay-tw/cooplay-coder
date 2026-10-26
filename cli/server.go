@@ -521,6 +521,9 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 			if err := sshConfigResponse.Validate(); err != nil {
 				return xerrors.Errorf("invalid ssh config: %w", err)
 			}
+			if err := validateWorkspaceAdmission(vals); err != nil {
+				return err
+			}
 
 			httpServers, err := ConfigureHTTPServers(logger, inv, vals)
 			if err != nil {
@@ -1297,6 +1300,19 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 			options.WorkspaceUsageTracker = tracker
 			defer tracker.Close()
 
+			// The workspace admission API runs on its own listener so that
+			// it is never reachable through the main API.
+			closeWorkspaceAdmission, err := serveWorkspaceAdmission(ctx, logger.Named("workspace_admission"), inv, vals, coderAPI)
+			if err != nil {
+				_ = coderAPICloser.Close()
+				return xerrors.Errorf("serve workspace admission api: %w", err)
+			}
+			var closeWorkspaceAdmissionOnce sync.Once
+			shutdownWorkspaceAdmission := func() {
+				closeWorkspaceAdmissionOnce.Do(closeWorkspaceAdmission)
+			}
+			defer shutdownWorkspaceAdmission()
+
 			// Wrap the server in middleware that redirects to the access URL if
 			// the request is not to a local IP.
 			var handler http.Handler = coderAPI.RootHandler
@@ -1415,6 +1431,7 @@ func (r *RootCmd) Server(newAPI func(context.Context, *coderd.Options) (*coderd.
 			}
 			// Cancel any remaining in-flight requests.
 			shutdownConns()
+			shutdownWorkspaceAdmission()
 
 			if notificationsManager != nil {
 				// Stop the notification manager, which will cause any buffered updates to the store to be flushed.
