@@ -272,6 +272,9 @@ var (
 					rbac.ResourceWorkspaceAgentDevcontainers.Type:   {policy.ActionCreate},
 					// Provisionerd creates usage events
 					rbac.ResourceUsageEvent.Type: {policy.ActionCreate},
+					// Provisionerd withholds owner tokens from builds of
+					// templates managed by workspace admission.
+					rbac.ResourceWorkspaceAdmission.Type: {policy.ActionRead},
 				}),
 				User:    []rbac.Permission{},
 				ByOrgID: map[string]rbac.OrgPermissions{},

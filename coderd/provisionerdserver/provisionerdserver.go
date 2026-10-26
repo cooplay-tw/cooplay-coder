@@ -731,10 +731,15 @@ func (s *server) acquireProtoJob(ctx context.Context, job database.ProvisionerJo
 			return nil, failJob(fmt.Sprintf("publish workspace update: %s", err))
 		}
 
+		withholdOwnerTokens, err := withholdsOwnerTokens(ctx, s.Database, template.ID)
+		if err != nil {
+			return nil, failJob(fmt.Sprintf("get workspace admission template: %s", err))
+		}
+
 		var workspaceOwnerOIDCAccessToken string
 		// The check `s.OIDCConfig != nil` is not as strict, since it can be an interface
 		// pointing to a typed nil.
-		if !reflect.ValueOf(s.OIDCConfig).IsNil() {
+		if !withholdOwnerTokens && !reflect.ValueOf(s.OIDCConfig).IsNil() {
 			workspaceOwnerOIDCAccessToken, err = ObtainOIDCAccessToken(ctx, s.Logger, s.Database, s.OIDCConfig, owner.ID)
 			if err != nil {
 				return nil, failJob(fmt.Sprintf("obtain OIDC access token: %s", err))
@@ -744,9 +749,18 @@ func (s *server) acquireProtoJob(ctx context.Context, job database.ProvisionerJo
 		var sessionToken string
 		switch workspaceBuild.Transition {
 		case database.WorkspaceTransitionStart:
-			sessionToken, err = s.regenerateSessionToken(ctx, owner, workspace)
-			if err != nil {
-				return nil, failJob(fmt.Sprintf("regenerate session token: %s", err))
+			if withholdOwnerTokens {
+				// Never mint an owner session token, and remove one minted
+				// before the template became managed.
+				err = deleteSessionToken(ctx, s.Database, workspace)
+				if err != nil {
+					return nil, failJob(fmt.Sprintf("delete session token: %s", err))
+				}
+			} else {
+				sessionToken, err = s.regenerateSessionToken(ctx, owner, workspace)
+				if err != nil {
+					return nil, failJob(fmt.Sprintf("regenerate session token: %s", err))
+				}
 			}
 		case database.WorkspaceTransitionStop, database.WorkspaceTransitionDelete:
 			err = deleteSessionToken(ctx, s.Database, workspace)
