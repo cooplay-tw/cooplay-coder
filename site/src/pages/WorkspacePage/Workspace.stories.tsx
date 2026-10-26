@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { action } from "storybook/actions";
+import { expect, within } from "storybook/test";
 import type { ProvisionerJobLog } from "#/api/typesGenerated";
 import * as Mocks from "#/testHelpers/entities";
 import {
@@ -326,6 +327,95 @@ export const PendingWithUndefinedProvisioners: Story = {
 				matched_provisioners: undefined,
 			},
 		},
+	},
+};
+
+export const PendingWaitingForCapacity: Story = {
+	args: {
+		...Running.args,
+		workspace: {
+			...Mocks.MockCapacityWaitingWorkspace,
+			latest_build: {
+				...Mocks.MockCapacityWaitingWorkspace.latest_build,
+				matched_provisioners: {
+					count: 0,
+					available: 0,
+				},
+			},
+		},
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByRole("heading", { name: "Waiting for capacity" }),
+		).toBeVisible();
+		await expect(
+			canvas.queryByText("Build pending provisioner deployment"),
+		).not.toBeInTheDocument();
+		await expect(canvas.getByRole("button", { name: "Cancel" })).toBeVisible();
+	},
+};
+
+export const PendingCapacityGranted: Story = {
+	args: {
+		...Running.args,
+		workspace: {
+			...Mocks.MockPendingWorkspace,
+			latest_build: {
+				...Mocks.MockPendingWorkspace.latest_build,
+				admission: {
+					...Mocks.MockWorkspaceBuildAdmission,
+					status: "granted",
+					reason: "",
+					queue_position: undefined,
+					granted_at: "2022-05-17T17:40:01.382927298Z",
+				},
+				matched_provisioners: {
+					count: 0,
+					available: 0,
+				},
+			},
+		},
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByRole("heading", { name: "Waiting for a provisioner" }),
+		).toBeVisible();
+		await expect(
+			canvas.getByText("Build pending provisioner deployment"),
+		).toBeVisible();
+	},
+};
+
+export const CapacityRejected: Story = {
+	args: {
+		...Running.args,
+		workspace: {
+			...Mocks.MockFailedWorkspace,
+			latest_build: {
+				...Mocks.MockFailedWorkspace.latest_build,
+				job: {
+					...Mocks.MockFailedWorkspace.latest_build.job,
+					error: "admission rejected: quota: profile large is not allowed",
+				},
+				admission: {
+					...Mocks.MockWorkspaceBuildAdmission,
+					status: "rejected",
+					reason: "quota: profile large is not allowed",
+					queue_position: undefined,
+				},
+			},
+		},
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByRole("heading", { name: "Capacity request rejected" }),
+		).toBeVisible();
+		await expect(
+			canvas.queryByRole("heading", { name: "Workspace build failed" }),
+		).not.toBeInTheDocument();
 	},
 };
 

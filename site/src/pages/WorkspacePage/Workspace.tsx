@@ -13,6 +13,7 @@ import { HistorySidebar } from "./HistorySidebar";
 import { ResourceMetadata } from "./ResourceMetadata";
 import { ResourcesSidebar } from "./ResourcesSidebar";
 import { resourceOptionValue, useResourcesNav } from "./useResourcesNav";
+import { WorkspaceAdmissionAlert } from "./WorkspaceAdmissionAlert";
 import { WorkspaceBuildLogsSection } from "./WorkspaceBuildLogsSection";
 import {
 	getActiveTransitionStats,
@@ -99,8 +100,14 @@ export const Workspace: FC<WorkspaceProps> = ({
 	const shouldShowBuildLogs = haveBuildLogs && !workspaceRunning;
 	const provisionersHealthy =
 		(workspace.latest_build.matched_provisioners?.available ?? 1) > 0;
+	const admissionStatus = workspace.latest_build.admission?.status;
+	// A build that waits for capacity does not compete for provisioners yet.
 	const shouldShowProvisionerAlert =
-		workspacePending && !haveBuildLogs && !provisionersHealthy && !isRestarting;
+		workspacePending &&
+		!haveBuildLogs &&
+		!provisionersHealthy &&
+		!isRestarting &&
+		admissionStatus !== "waiting";
 
 	return (
 		<div className="flex flex-col flex-1 min-h-0">
@@ -176,6 +183,8 @@ export const Workspace: FC<WorkspaceProps> = ({
 								/>
 							)}
 
+							<WorkspaceAdmissionAlert build={workspace.latest_build} />
+
 							{shouldShowProvisionerAlert && (
 								<ProvisionerStatusAlert
 									matchingProvisioners={
@@ -188,14 +197,16 @@ export const Workspace: FC<WorkspaceProps> = ({
 								/>
 							)}
 
-							{workspace.latest_build.job.error && (
-								<Alert severity="error" prominent>
-									<AlertTitle>Workspace build failed</AlertTitle>
-									<AlertDescription>
-										{workspace.latest_build.job.error}
-									</AlertDescription>
-								</Alert>
-							)}
+							{/* A rejected capacity request already explains the failure. */}
+							{workspace.latest_build.job.error &&
+								admissionStatus !== "rejected" && (
+									<Alert severity="error" prominent>
+										<AlertTitle>Workspace build failed</AlertTitle>
+										<AlertDescription>
+											{workspace.latest_build.job.error}
+										</AlertDescription>
+									</Alert>
+								)}
 
 							{transitionStats !== undefined && (
 								<WorkspaceBuildProgress

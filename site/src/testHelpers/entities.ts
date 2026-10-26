@@ -1852,6 +1852,25 @@ export const MockPendingWorkspace: TypesGen.Workspace = {
 	},
 };
 
+export const MockWorkspaceBuildAdmission: TypesGen.WorkspaceBuildAdmission = {
+	status: "waiting",
+	reason: "2 workspaces ahead of you",
+	queue_position: 3,
+	queued_at: "2022-05-17T17:39:01.382927298Z",
+};
+
+// A START build on a template managed by workspace admission waits for
+// capacity, so it has no provisioner queue position.
+export const MockCapacityWaitingWorkspace: TypesGen.Workspace = {
+	...MockPendingWorkspace,
+	id: "test-capacity-waiting-workspace",
+	latest_build: {
+		...MockPendingWorkspace.latest_build,
+		job: { ...MockPendingProvisionerJob, queue_position: 0, queue_size: 0 },
+		admission: MockWorkspaceBuildAdmission,
+	},
+};
+
 // just over one page of workspaces
 export const MockWorkspacesResponse: TypesGen.WorkspacesResponse = {
 	workspaces: range(1, 27).map((id: number) => ({

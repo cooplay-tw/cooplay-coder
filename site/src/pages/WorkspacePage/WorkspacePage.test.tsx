@@ -14,6 +14,7 @@ import type { WorkspacePermissions } from "#/modules/workspaces/permissions";
 import {
 	MockAppearanceConfig,
 	MockBuildInfo,
+	MockCapacityWaitingWorkspace,
 	MockDeploymentConfig,
 	MockEntitlements,
 	MockFailedWorkspace,
@@ -25,6 +26,7 @@ import {
 	MockTemplate,
 	MockWorkspace,
 	MockWorkspaceBuild,
+	MockWorkspaceBuildAdmission,
 	MockWorkspaceBuildDelete,
 } from "#/testHelpers/entities";
 import {
@@ -272,6 +274,42 @@ describe("WorkspacePage", () => {
 
 		expect(cancelWorkspaceMock).toHaveBeenCalledWith(
 			MockPendingWorkspace.latest_build.id,
+			{ expect_status: "pending" },
+		);
+	});
+
+	it("shows the capacity wait and keeps Cancel available", async () => {
+		server.use(
+			http.get("/api/v2/users/:userId/workspace/:workspaceName", () => {
+				return HttpResponse.json(MockCapacityWaitingWorkspace);
+			}),
+		);
+
+		const user = userEvent.setup({ delay: 0 });
+		const cancelWorkspaceMock = vi
+			.spyOn(API, "cancelWorkspaceBuild")
+			.mockImplementation(() => Promise.resolve({ message: "job canceled" }));
+		await renderWorkspacePage(MockCapacityWaitingWorkspace);
+
+		await screen.findByRole("heading", { name: "Waiting for capacity" });
+		expect(
+			screen.getByText(MockWorkspaceBuildAdmission.reason),
+		).toBeInTheDocument();
+		expect(screen.getByText(/position in capacity queue/i)).toHaveTextContent(
+			`Position in capacity queue: ${MockWorkspaceBuildAdmission.queue_position}`,
+		);
+
+		const cancelButton = await screen.findByRole("button", { name: "Cancel" });
+		await user.click(cancelButton);
+		const dialog = await screen.findByTestId("dialog");
+		const confirmButton = within(dialog).getByRole("button", {
+			name: "Confirm",
+			hidden: false,
+		});
+		await user.click(confirmButton);
+
+		expect(cancelWorkspaceMock).toHaveBeenCalledWith(
+			MockCapacityWaitingWorkspace.latest_build.id,
 			{ expect_status: "pending" },
 		);
 	});
