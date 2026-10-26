@@ -4881,7 +4881,7 @@ func (s *MethodTestSuite) TestWorkspaceAdmission() {
 	}))
 	s.Run("UpdateWorkspaceBuildAdmissionDisplays", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
 		arg := database.UpdateWorkspaceBuildAdmissionDisplaysParams{JobIds: []uuid.UUID{uuid.New()}, Reasons: []string{"x"}, QueuePositions: []int32{1}}
-		dbm.EXPECT().UpdateWorkspaceBuildAdmissionDisplays(gomock.Any(), arg).Return([]uuid.UUID{}, nil).AnyTimes()
+		dbm.EXPECT().UpdateWorkspaceBuildAdmissionDisplays(gomock.Any(), arg).Return([]database.UpdateWorkspaceBuildAdmissionDisplaysRow{}, nil).AnyTimes()
 		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate)
 	}))
 	s.Run("GetWorkspaceBuildAdmissionsWatermark", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {

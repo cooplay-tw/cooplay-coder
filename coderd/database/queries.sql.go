@@ -34010,7 +34010,9 @@ WHERE
 	wba.job_id = d.job_id
 	AND wba.status = 'waiting'::workspace_admission_status
 RETURNING
-	wba.job_id
+	wba.job_id,
+	wba.workspace_id,
+	wba.owner_id
 `
 
 type UpdateWorkspaceBuildAdmissionDisplaysParams struct {
@@ -34020,9 +34022,17 @@ type UpdateWorkspaceBuildAdmissionDisplaysParams struct {
 	QueuePositions []int32     `db:"queue_positions" json:"queue_positions"`
 }
 
+type UpdateWorkspaceBuildAdmissionDisplaysRow struct {
+	JobID       uuid.UUID `db:"job_id" json:"job_id"`
+	WorkspaceID uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	OwnerID     uuid.UUID `db:"owner_id" json:"owner_id"`
+}
+
 // Updates the waiting reason and capacity queue position shown to users.
 // Only waiting rows change. A queue position of -1 clears the position.
-func (q *sqlQuerier) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg UpdateWorkspaceBuildAdmissionDisplaysParams) ([]uuid.UUID, error) {
+// Returns the changed rows with their workspace and owner so callers can
+// notify the workspace watchers.
+func (q *sqlQuerier) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg UpdateWorkspaceBuildAdmissionDisplaysParams) ([]UpdateWorkspaceBuildAdmissionDisplaysRow, error) {
 	rows, err := q.db.QueryContext(ctx, updateWorkspaceBuildAdmissionDisplays,
 		arg.UpdatedAt,
 		pq.Array(arg.JobIds),
@@ -34033,13 +34043,13 @@ func (q *sqlQuerier) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, 
 		return nil, err
 	}
 	defer rows.Close()
-	var items []uuid.UUID
+	var items []UpdateWorkspaceBuildAdmissionDisplaysRow
 	for rows.Next() {
-		var job_id uuid.UUID
-		if err := rows.Scan(&job_id); err != nil {
+		var i UpdateWorkspaceBuildAdmissionDisplaysRow
+		if err := rows.Scan(&i.JobID, &i.WorkspaceID, &i.OwnerID); err != nil {
 			return nil, err
 		}
-		items = append(items, job_id)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

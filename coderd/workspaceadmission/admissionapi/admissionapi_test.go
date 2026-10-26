@@ -28,6 +28,7 @@ import (
 	"github.com/coder/coder/v2/coderd/util/ptr"
 	"github.com/coder/coder/v2/coderd/workspaceadmission/admissionapi"
 	"github.com/coder/coder/v2/coderd/workspaceadmission/admissiontest"
+	"github.com/coder/coder/v2/coderd/wspubsub"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/testutil"
 	"github.com/coder/quartz"
@@ -441,6 +442,48 @@ func TestDisplay(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, env.call(ctx, t, http.MethodPost, "/v1/requests/display", []admissionapi.DisplayUpdate{
 		{JobID: a}, {JobID: a},
 	}, &errResp))
+}
+
+// TestAdmissionChangesNotifyWorkspaceWatchers verifies that changes users
+// see on the workspace page refresh the watchers of that workspace.
+func TestAdmissionChangesNotifyWorkspaceWatchers(t *testing.T) {
+	t.Parallel()
+	env := newAPIEnv(t, nil)
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
+	workspace := env.waitingWorkspace(t, "small")
+	path := "/v1/requests/" + workspace.LatestBuild.Job.ID.String()
+
+	events := make(chan uuid.UUID, 16)
+	cancel, err := env.ps.SubscribeWithErr(wspubsub.WorkspaceEventChannel(env.memberID), wspubsub.HandleWorkspaceEvent(
+		func(_ context.Context, e wspubsub.WorkspaceEvent, err error) {
+			if err == nil && e.Kind == wspubsub.WorkspaceEventKindStateChange {
+				events <- e.WorkspaceID
+			}
+		}))
+	require.NoError(t, err)
+	defer cancel()
+
+	position := int32(2)
+	var display admissionapi.DisplayResponse
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodPost, "/v1/requests/display", []admissionapi.DisplayUpdate{
+		{JobID: workspace.LatestBuild.Job.ID, Reason: "second in line", QueuePosition: &position},
+	}, &display))
+	require.Equal(t, workspace.ID, testutil.RequireReceive(ctx, t, events), "display update")
+
+	grant := grantBody("small")
+	var req admissionapi.Request
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodPost, path+"/grant", grant, &req))
+	require.Equal(t, workspace.ID, testutil.RequireReceive(ctx, t, events), "grant")
+
+	var revoke admissionapi.RevokeResponse
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodPost, path+"/revoke", admissionapi.RevokeRequest{ReservationID: grant.ReservationID}, &revoke))
+	require.Equal(t, workspace.ID, testutil.RequireReceive(ctx, t, events), "revoke")
+
+	// The member sees the requeued admission on the workspace.
+	got, err := env.member.Workspace(ctx, workspace.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.LatestBuild.Admission)
+	require.Equal(t, codersdk.WorkspaceBuildAdmissionStatusWaiting, got.LatestBuild.Admission.Status)
 }
 
 func TestWatch(t *testing.T) {

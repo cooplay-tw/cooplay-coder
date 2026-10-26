@@ -9066,7 +9066,7 @@ func (q *querier) UpdateWorkspaceAutostart(ctx context.Context, arg database.Upd
 	return update(q.log, q.auth, fetch, q.db.UpdateWorkspaceAutostart)(ctx, arg)
 }
 
-func (q *querier) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg database.UpdateWorkspaceBuildAdmissionDisplaysParams) ([]uuid.UUID, error) {
+func (q *querier) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg database.UpdateWorkspaceBuildAdmissionDisplaysParams) ([]database.UpdateWorkspaceBuildAdmissionDisplaysRow, error) {
 	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
 		return nil, err
 	}

@@ -6296,7 +6296,7 @@ func (m queryMetricsStore) UpdateWorkspaceAutostart(ctx context.Context, arg dat
 	return r0
 }
 
-func (m queryMetricsStore) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg database.UpdateWorkspaceBuildAdmissionDisplaysParams) ([]uuid.UUID, error) {
+func (m queryMetricsStore) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg database.UpdateWorkspaceBuildAdmissionDisplaysParams) ([]database.UpdateWorkspaceBuildAdmissionDisplaysRow, error) {
 	start := time.Now()
 	r0, r1 := m.s.UpdateWorkspaceBuildAdmissionDisplays(ctx, arg)
 	m.queryLatencies.WithLabelValues("UpdateWorkspaceBuildAdmissionDisplays").Observe(time.Since(start).Seconds())

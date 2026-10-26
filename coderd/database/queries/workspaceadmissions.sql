@@ -296,6 +296,8 @@ RETURNING
 -- name: UpdateWorkspaceBuildAdmissionDisplays :many
 -- Updates the waiting reason and capacity queue position shown to users.
 -- Only waiting rows change. A queue position of -1 clears the position.
+-- Returns the changed rows with their workspace and owner so callers can
+-- notify the workspace watchers.
 UPDATE
 	workspace_build_admissions wba
 SET
@@ -312,7 +314,9 @@ WHERE
 	wba.job_id = d.job_id
 	AND wba.status = 'waiting'::workspace_admission_status
 RETURNING
-	wba.job_id;
+	wba.job_id,
+	wba.workspace_id,
+	wba.owner_id;
 
 -- name: GetWorkspaceBuildAdmissionsWatermark :one
 -- Returns the latest admission update time. The admission service uses it as

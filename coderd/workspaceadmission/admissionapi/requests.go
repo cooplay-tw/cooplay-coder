@@ -269,6 +269,7 @@ func (s *Server) grantRequest(rw http.ResponseWriter, r *http.Request) {
 		s.logger.Warn(ctx, "failed to post granted provisioner job", slog.F("job_id", jobID), slog.Error(err))
 	}
 	s.publish(ctx, jobID)
+	s.publishWorkspaceChanged(ctx, resp.OwnerID, resp.WorkspaceID)
 	httpapi.Write(ctx, rw, http.StatusOK, resp)
 }
 
@@ -337,6 +338,7 @@ func (s *Server) revokeRequest(rw http.ResponseWriter, r *http.Request) {
 	}
 	if changed {
 		s.publish(ctx, jobID)
+		s.publishWorkspaceChanged(ctx, resp.Request.OwnerID, resp.Request.WorkspaceID)
 	}
 	httpapi.Write(ctx, rw, http.StatusOK, resp)
 }
@@ -530,8 +532,8 @@ func (s *Server) updateDisplays(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		updatedSet := make(map[uuid.UUID]struct{}, len(updated))
-		for _, id := range updated {
-			updatedSet[id] = struct{}{}
+		for _, row := range updated {
+			updatedSet[row.JobID] = struct{}{}
 		}
 		for _, id := range params.JobIds {
 			if _, ok := updatedSet[id]; ok {
@@ -542,6 +544,11 @@ func (s *Server) updateDisplays(rw http.ResponseWriter, r *http.Request) {
 		}
 		for _, id := range resp.Updated {
 			s.publish(ctx, id)
+		}
+		// Workspace pages show the reason and capacity queue position, so
+		// their watchers refresh after a change.
+		for _, row := range updated {
+			s.publishWorkspaceChanged(ctx, row.OwnerID, row.WorkspaceID)
 		}
 	}
 	httpapi.Write(ctx, rw, http.StatusOK, resp)

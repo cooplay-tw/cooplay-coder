@@ -1685,7 +1685,9 @@ type sqlcQuerier interface {
 	UpdateWorkspaceAutostart(ctx context.Context, arg UpdateWorkspaceAutostartParams) error
 	// Updates the waiting reason and capacity queue position shown to users.
 	// Only waiting rows change. A queue position of -1 clears the position.
-	UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg UpdateWorkspaceBuildAdmissionDisplaysParams) ([]uuid.UUID, error)
+	// Returns the changed rows with their workspace and owner so callers can
+	// notify the workspace watchers.
+	UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg UpdateWorkspaceBuildAdmissionDisplaysParams) ([]UpdateWorkspaceBuildAdmissionDisplaysRow, error)
 	UpdateWorkspaceBuildCostByID(ctx context.Context, arg UpdateWorkspaceBuildCostByIDParams) error
 	UpdateWorkspaceBuildDeadlineByID(ctx context.Context, arg UpdateWorkspaceBuildDeadlineByIDParams) error
 	UpdateWorkspaceBuildFlagsByID(ctx context.Context, arg UpdateWorkspaceBuildFlagsByIDParams) error

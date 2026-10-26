@@ -11876,10 +11876,10 @@ func (mr *MockStoreMockRecorder) UpdateWorkspaceAutostart(ctx, arg any) *gomock.
 }
 
 // UpdateWorkspaceBuildAdmissionDisplays mocks base method.
-func (m *MockStore) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg database.UpdateWorkspaceBuildAdmissionDisplaysParams) ([]uuid.UUID, error) {
+func (m *MockStore) UpdateWorkspaceBuildAdmissionDisplays(ctx context.Context, arg database.UpdateWorkspaceBuildAdmissionDisplaysParams) ([]database.UpdateWorkspaceBuildAdmissionDisplaysRow, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateWorkspaceBuildAdmissionDisplays", ctx, arg)
-	ret0, _ := ret[0].([]uuid.UUID)
+	ret0, _ := ret[0].([]database.UpdateWorkspaceBuildAdmissionDisplaysRow)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
