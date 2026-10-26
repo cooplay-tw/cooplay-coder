@@ -87,6 +87,13 @@ of the template will be used.
     "workspace_id": "0967198e-ec7b-4c6b-b4d3-f71244cadbe9"
   },
   "latest_build": {
+    "admission": {
+      "granted_at": "2019-08-24T14:15:22Z",
+      "queue_position": 0,
+      "queued_at": "2019-08-24T14:15:22Z",
+      "reason": "string",
+      "status": "waiting"
+    },
     "build_number": 0,
     "created_at": "2019-08-24T14:15:22Z",
     "daily_cost": 0,
@@ -470,6 +477,13 @@ curl -X GET http://coder-server:8080/api/v2/users/{user}/workspace/{workspacenam
     "workspace_id": "0967198e-ec7b-4c6b-b4d3-f71244cadbe9"
   },
   "latest_build": {
+    "admission": {
+      "granted_at": "2019-08-24T14:15:22Z",
+      "queue_position": 0,
+      "queued_at": "2019-08-24T14:15:22Z",
+      "reason": "string",
+      "status": "waiting"
+    },
     "build_number": 0,
     "created_at": "2019-08-24T14:15:22Z",
     "daily_cost": 0,
@@ -820,6 +834,13 @@ of the template will be used.
     "workspace_id": "0967198e-ec7b-4c6b-b4d3-f71244cadbe9"
   },
   "latest_build": {
+    "admission": {
+      "granted_at": "2019-08-24T14:15:22Z",
+      "queue_position": 0,
+      "queued_at": "2019-08-24T14:15:22Z",
+      "reason": "string",
+      "status": "waiting"
+    },
     "build_number": 0,
     "created_at": "2019-08-24T14:15:22Z",
     "daily_cost": 0,
@@ -1148,6 +1169,13 @@ curl -X GET http://coder-server:8080/api/v2/workspaces \
         "workspace_id": "0967198e-ec7b-4c6b-b4d3-f71244cadbe9"
       },
       "latest_build": {
+        "admission": {
+          "granted_at": "2019-08-24T14:15:22Z",
+          "queue_position": 0,
+          "queued_at": "2019-08-24T14:15:22Z",
+          "reason": "string",
+          "status": "waiting"
+        },
         "build_number": 0,
         "created_at": "2019-08-24T14:15:22Z",
         "daily_cost": 0,
@@ -1446,6 +1474,13 @@ curl -X GET http://coder-server:8080/api/v2/workspaces/{workspace} \
     "workspace_id": "0967198e-ec7b-4c6b-b4d3-f71244cadbe9"
   },
   "latest_build": {
+    "admission": {
+      "granted_at": "2019-08-24T14:15:22Z",
+      "queue_position": 0,
+      "queued_at": "2019-08-24T14:15:22Z",
+      "reason": "string",
+      "status": "waiting"
+    },
     "build_number": 0,
     "created_at": "2019-08-24T14:15:22Z",
     "daily_cost": 0,
@@ -2082,6 +2117,13 @@ curl -X PUT http://coder-server:8080/api/v2/workspaces/{workspace}/dormant \
     "workspace_id": "0967198e-ec7b-4c6b-b4d3-f71244cadbe9"
   },
   "latest_build": {
+    "admission": {
+      "granted_at": "2019-08-24T14:15:22Z",
+      "queue_position": 0,
+      "queued_at": "2019-08-24T14:15:22Z",
+      "reason": "string",
+      "status": "waiting"
+    },
     "build_number": 0,
     "created_at": "2019-08-24T14:15:22Z",
     "daily_cost": 0,

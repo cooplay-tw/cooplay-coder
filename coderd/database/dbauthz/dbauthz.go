@@ -914,6 +914,28 @@ var (
 		Scope: rbac.ScopeAll,
 	}.WithCachedASTValue()
 
+	// subjectWorkspaceAdmissionReader reads the admission records of
+	// workspace builds that the caller was already authorized to read, so the
+	// API can show capacity waits without granting users any permission on
+	// workspace admission.
+	subjectWorkspaceAdmissionReader = rbac.Subject{
+		Type:         rbac.SubjectTypeWorkspaceAdmissionReader,
+		FriendlyName: "Workspace Admission Reader",
+		ID:           uuid.Nil.String(),
+		Roles: rbac.Roles([]rbac.Role{
+			{
+				Identifier:  rbac.RoleIdentifier{Name: "workspace-admission-reader"},
+				DisplayName: "Workspace Admission Reader",
+				Site: rbac.Permissions(map[string][]policy.Action{
+					rbac.ResourceWorkspaceAdmission.Type: {policy.ActionRead},
+				}),
+				User:    []rbac.Permission{},
+				ByOrgID: map[string]rbac.OrgPermissions{},
+			},
+		}),
+		Scope: rbac.ScopeAll,
+	}.WithCachedASTValue()
+
 	// subjectExternalAuthCoordinator is used to check whether a user has configured
 	// external auth providers or not when an admin is creating a workspace for
 	// another user.
@@ -1101,6 +1123,14 @@ func AsExternalAuthCoordinator(ctx context.Context) context.Context {
 // managed build jobs, and suspending users.
 func AsWorkspaceAdmission(ctx context.Context) context.Context {
 	return As(ctx, subjectWorkspaceAdmission)
+}
+
+// AsWorkspaceAdmissionReader returns a context with an actor that can
+// only read workspace admission records. Use it only to read the admission of
+// workspace builds after the caller's own authorization to read those builds
+// succeeded, and only for those build IDs.
+func AsWorkspaceAdmissionReader(ctx context.Context) context.Context {
+	return As(ctx, subjectWorkspaceAdmissionReader)
 }
 
 var AsRemoveActor = rbac.Subject{

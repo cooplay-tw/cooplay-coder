@@ -17250,6 +17250,13 @@ If the schedule is empty, the user will be updated to use the default schedule.|
     "workspace_id": "0967198e-ec7b-4c6b-b4d3-f71244cadbe9"
   },
   "latest_build": {
+    "admission": {
+      "granted_at": "2019-08-24T14:15:22Z",
+      "queue_position": 0,
+      "queued_at": "2019-08-24T14:15:22Z",
+      "reason": "string",
+      "status": "waiting"
+    },
     "build_number": 0,
     "created_at": "2019-08-24T14:15:22Z",
     "daily_cost": 0,
@@ -18615,6 +18622,13 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 
 ```json
 {
+  "admission": {
+    "granted_at": "2019-08-24T14:15:22Z",
+    "queue_position": 0,
+    "queued_at": "2019-08-24T14:15:22Z",
+    "reason": "string",
+    "status": "waiting"
+  },
   "build_number": 0,
   "created_at": "2019-08-24T14:15:22Z",
   "daily_cost": 0,
@@ -18844,33 +18858,34 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 
 ### Properties
 
-| Name                         | Type                                                              | Required | Restrictions | Description                                                              |
-|------------------------------|-------------------------------------------------------------------|----------|--------------|--------------------------------------------------------------------------|
-| `build_number`               | integer                                                           | false    |              |                                                                          |
-| `created_at`                 | string                                                            | false    |              |                                                                          |
-| `daily_cost`                 | integer                                                           | false    |              |                                                                          |
-| `deadline`                   | string                                                            | false    |              |                                                                          |
-| `has_ai_task`                | boolean                                                           | false    |              | Deprecated: This field has been deprecated in favor of Task WorkspaceID. |
-| `has_external_agent`         | boolean                                                           | false    |              |                                                                          |
-| `id`                         | string                                                            | false    |              |                                                                          |
-| `initiator_id`               | string                                                            | false    |              |                                                                          |
-| `initiator_name`             | string                                                            | false    |              |                                                                          |
-| `job`                        | [codersdk.ProvisionerJob](#codersdkprovisionerjob)                | false    |              |                                                                          |
-| `matched_provisioners`       | [codersdk.MatchedProvisioners](#codersdkmatchedprovisioners)      | false    |              |                                                                          |
-| `max_deadline`               | string                                                            | false    |              |                                                                          |
-| `reason`                     | [codersdk.BuildReason](#codersdkbuildreason)                      | false    |              |                                                                          |
-| `resources`                  | array of [codersdk.WorkspaceResource](#codersdkworkspaceresource) | false    |              |                                                                          |
-| `status`                     | [codersdk.WorkspaceStatus](#codersdkworkspacestatus)              | false    |              |                                                                          |
-| `template_version_id`        | string                                                            | false    |              |                                                                          |
-| `template_version_name`      | string                                                            | false    |              |                                                                          |
-| `template_version_preset_id` | string                                                            | false    |              |                                                                          |
-| `transition`                 | [codersdk.WorkspaceTransition](#codersdkworkspacetransition)      | false    |              |                                                                          |
-| `updated_at`                 | string                                                            | false    |              |                                                                          |
-| `workspace_id`               | string                                                            | false    |              |                                                                          |
-| `workspace_name`             | string                                                            | false    |              |                                                                          |
-| `workspace_owner_avatar_url` | string                                                            | false    |              |                                                                          |
-| `workspace_owner_id`         | string                                                            | false    |              |                                                                          |
-| `workspace_owner_name`       | string                                                            | false    |              | Workspace owner name is the username of the owner of the workspace.      |
+| Name                         | Type                                                                 | Required | Restrictions | Description                                                                                                                                             |
+|------------------------------|----------------------------------------------------------------------|----------|--------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `admission`                  | [codersdk.WorkspaceBuildAdmission](#codersdkworkspacebuildadmission) | false    |              | Admission is the capacity admission of a START build on a template managed by workspace admission. It is omitted for builds that do not need admission. |
+| `build_number`               | integer                                                              | false    |              |                                                                                                                                                         |
+| `created_at`                 | string                                                               | false    |              |                                                                                                                                                         |
+| `daily_cost`                 | integer                                                              | false    |              |                                                                                                                                                         |
+| `deadline`                   | string                                                               | false    |              |                                                                                                                                                         |
+| `has_ai_task`                | boolean                                                              | false    |              | Deprecated: This field has been deprecated in favor of Task WorkspaceID.                                                                                |
+| `has_external_agent`         | boolean                                                              | false    |              |                                                                                                                                                         |
+| `id`                         | string                                                               | false    |              |                                                                                                                                                         |
+| `initiator_id`               | string                                                               | false    |              |                                                                                                                                                         |
+| `initiator_name`             | string                                                               | false    |              |                                                                                                                                                         |
+| `job`                        | [codersdk.ProvisionerJob](#codersdkprovisionerjob)                   | false    |              |                                                                                                                                                         |
+| `matched_provisioners`       | [codersdk.MatchedProvisioners](#codersdkmatchedprovisioners)         | false    |              |                                                                                                                                                         |
+| `max_deadline`               | string                                                               | false    |              |                                                                                                                                                         |
+| `reason`                     | [codersdk.BuildReason](#codersdkbuildreason)                         | false    |              |                                                                                                                                                         |
+| `resources`                  | array of [codersdk.WorkspaceResource](#codersdkworkspaceresource)    | false    |              |                                                                                                                                                         |
+| `status`                     | [codersdk.WorkspaceStatus](#codersdkworkspacestatus)                 | false    |              |                                                                                                                                                         |
+| `template_version_id`        | string                                                               | false    |              |                                                                                                                                                         |
+| `template_version_name`      | string                                                               | false    |              |                                                                                                                                                         |
+| `template_version_preset_id` | string                                                               | false    |              |                                                                                                                                                         |
+| `transition`                 | [codersdk.WorkspaceTransition](#codersdkworkspacetransition)         | false    |              |                                                                                                                                                         |
+| `updated_at`                 | string                                                               | false    |              |                                                                                                                                                         |
+| `workspace_id`               | string                                                               | false    |              |                                                                                                                                                         |
+| `workspace_name`             | string                                                               | false    |              |                                                                                                                                                         |
+| `workspace_owner_avatar_url` | string                                                               | false    |              |                                                                                                                                                         |
+| `workspace_owner_id`         | string                                                               | false    |              |                                                                                                                                                         |
+| `workspace_owner_name`       | string                                                               | false    |              | Workspace owner name is the username of the owner of the workspace.                                                                                     |
 
 #### Enumerated Values
 
@@ -18879,6 +18894,48 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 | `reason`     | `autostart`, `autostop`, `initiator`                                                                              |
 | `status`     | `canceled`, `canceling`, `deleted`, `deleting`, `failed`, `pending`, `running`, `starting`, `stopped`, `stopping` |
 | `transition` | `delete`, `start`, `stop`                                                                                         |
+
+## codersdk.WorkspaceBuildAdmission
+
+```json
+{
+  "granted_at": "2019-08-24T14:15:22Z",
+  "queue_position": 0,
+  "queued_at": "2019-08-24T14:15:22Z",
+  "reason": "string",
+  "status": "waiting"
+}
+```
+
+### Properties
+
+| Name             | Type                                                                             | Required | Restrictions | Description                                                                                                                                                                                         |
+|------------------|----------------------------------------------------------------------------------|----------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `granted_at`     | string                                                                           | false    |              | Granted at is when capacity was granted.                                                                                                                                                            |
+| `queue_position` | integer                                                                          | false    |              | Queue position is the capacity queue position reported by the capacity controller. It is unrelated to the provisioner queue position of the job and is only set while the build waits for capacity. |
+| `queued_at`      | string                                                                           | false    |              |                                                                                                                                                                                                     |
+| `reason`         | string                                                                           | false    |              | Reason is the waiting or decision reason reported by the capacity controller, for example waiting_for_capacity.                                                                                     |
+| `status`         | [codersdk.WorkspaceBuildAdmissionStatus](#codersdkworkspacebuildadmissionstatus) | false    |              |                                                                                                                                                                                                     |
+
+#### Enumerated Values
+
+| Property | Value(s)                                                            |
+|----------|---------------------------------------------------------------------|
+| `status` | `acquired`, `canceled`, `granted`, `rejected`, `revoked`, `waiting` |
+
+## codersdk.WorkspaceBuildAdmissionStatus
+
+```json
+"waiting"
+```
+
+### Properties
+
+#### Enumerated Values
+
+| Value(s)                                                            |
+|---------------------------------------------------------------------|
+| `acquired`, `canceled`, `granted`, `rejected`, `revoked`, `waiting` |
 
 ## codersdk.WorkspaceBuildParameter
 
@@ -19486,6 +19543,13 @@ If the schedule is empty, the user will be updated to use the default schedule.|
         "workspace_id": "0967198e-ec7b-4c6b-b4d3-f71244cadbe9"
       },
       "latest_build": {
+        "admission": {
+          "granted_at": "2019-08-24T14:15:22Z",
+          "queue_position": 0,
+          "queued_at": "2019-08-24T14:15:22Z",
+          "reason": "string",
+          "status": "waiting"
+        },
         "build_number": 0,
         "created_at": "2019-08-24T14:15:22Z",
         "daily_cost": 0,

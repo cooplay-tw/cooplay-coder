@@ -26,6 +26,7 @@ type latestBuildRelated struct {
 	Job             *jobRelated       // latest_build.job
 	Resources       *resourcesRelated // latest_build.resources
 	TemplateVersion bool              // latest_build.template_version
+	Admission       bool              // latest_build.admission
 }
 
 type jobRelated struct {
@@ -72,6 +73,7 @@ func allLatestBuildRelated() latestBuildRelated {
 			},
 		},
 		TemplateVersion: true,
+		Admission:       true,
 	}
 }
 

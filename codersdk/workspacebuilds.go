@@ -103,6 +103,52 @@ type WorkspaceBuild struct {
 	// Deprecated: This field has been deprecated in favor of Task WorkspaceID.
 	HasAITask        *bool `json:"has_ai_task,omitempty"`
 	HasExternalAgent *bool `json:"has_external_agent,omitempty"`
+	// Admission is the capacity admission of a START build on a template
+	// managed by workspace admission. It is omitted for builds that do not
+	// need admission.
+	Admission *WorkspaceBuildAdmission `json:"admission,omitempty"`
+}
+
+// WorkspaceBuildAdmissionStatus is the lifecycle state of a workspace build
+// admission.
+type WorkspaceBuildAdmissionStatus string
+
+const (
+	// WorkspaceBuildAdmissionStatusWaiting means the build waits for
+	// capacity. It does not occupy a provisioner while it waits.
+	WorkspaceBuildAdmissionStatusWaiting WorkspaceBuildAdmissionStatus = "waiting"
+	// WorkspaceBuildAdmissionStatusGranted means capacity was granted and the
+	// build waits for a provisioner.
+	WorkspaceBuildAdmissionStatusGranted WorkspaceBuildAdmissionStatus = "granted"
+	// WorkspaceBuildAdmissionStatusAcquired means a provisioner acquired the
+	// build.
+	WorkspaceBuildAdmissionStatusAcquired WorkspaceBuildAdmissionStatus = "acquired"
+	// WorkspaceBuildAdmissionStatusRejected means the capacity request was
+	// rejected and the build failed.
+	WorkspaceBuildAdmissionStatusRejected WorkspaceBuildAdmissionStatus = "rejected"
+	// WorkspaceBuildAdmissionStatusCanceled means the build was canceled
+	// before a provisioner acquired it.
+	WorkspaceBuildAdmissionStatusCanceled WorkspaceBuildAdmissionStatus = "canceled"
+	// WorkspaceBuildAdmissionStatusRevoked means the admission ended without
+	// the build starting, for example because no provisioner acquired it in
+	// time after the grant.
+	WorkspaceBuildAdmissionStatusRevoked WorkspaceBuildAdmissionStatus = "revoked"
+)
+
+// WorkspaceBuildAdmission is the capacity admission state of a workspace
+// START build on a template managed by workspace admission.
+type WorkspaceBuildAdmission struct {
+	Status WorkspaceBuildAdmissionStatus `json:"status" enums:"waiting,granted,acquired,rejected,canceled,revoked"`
+	// Reason is the waiting or decision reason reported by the capacity
+	// controller, for example waiting_for_capacity.
+	Reason string `json:"reason"`
+	// QueuePosition is the capacity queue position reported by the capacity
+	// controller. It is unrelated to the provisioner queue position of the
+	// job and is only set while the build waits for capacity.
+	QueuePosition *int      `json:"queue_position,omitempty"`
+	QueuedAt      time.Time `json:"queued_at" format:"date-time"`
+	// GrantedAt is when capacity was granted.
+	GrantedAt *time.Time `json:"granted_at,omitempty" format:"date-time"`
 }
 
 // WorkspaceResource describes resources used to create a workspace, for instance:

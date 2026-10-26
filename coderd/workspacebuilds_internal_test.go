@@ -160,6 +160,7 @@ func (f buildFixture) convert(api *API) ([]codersdk.WorkspaceBuild, error) {
 		f.logSources,
 		f.templateVersions,
 		f.daemons,
+		nil,
 	)
 }
 

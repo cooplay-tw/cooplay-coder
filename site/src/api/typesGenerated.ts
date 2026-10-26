@@ -11611,7 +11611,50 @@ export interface WorkspaceBuild {
 	 */
 	readonly has_ai_task?: boolean;
 	readonly has_external_agent?: boolean;
+	/**
+	 * Admission is the capacity admission of a START build on a template
+	 * managed by workspace admission. It is omitted for builds that do not
+	 * need admission.
+	 */
+	readonly admission?: WorkspaceBuildAdmission;
 }
+
+// From codersdk/workspacebuilds.go
+/**
+ * WorkspaceBuildAdmission is the capacity admission state of a workspace
+ * START build on a template managed by workspace admission.
+ */
+export interface WorkspaceBuildAdmission {
+	readonly status: WorkspaceBuildAdmissionStatus;
+	/**
+	 * Reason is the waiting or decision reason reported by the capacity
+	 * controller, for example waiting_for_capacity.
+	 */
+	readonly reason: string;
+	/**
+	 * QueuePosition is the capacity queue position reported by the capacity
+	 * controller. It is unrelated to the provisioner queue position of the
+	 * job and is only set while the build waits for capacity.
+	 */
+	readonly queue_position?: number;
+	readonly queued_at: string;
+	/**
+	 * GrantedAt is when capacity was granted.
+	 */
+	readonly granted_at?: string;
+}
+
+// From codersdk/workspacebuilds.go
+export type WorkspaceBuildAdmissionStatus =
+	| "acquired"
+	| "canceled"
+	| "granted"
+	| "rejected"
+	| "revoked"
+	| "waiting";
+
+export const WorkspaceBuildAdmissionStatuses: WorkspaceBuildAdmissionStatus[] =
+	["acquired", "canceled", "granted", "rejected", "revoked", "waiting"];
 
 // From codersdk/workspacebuilds.go
 /**

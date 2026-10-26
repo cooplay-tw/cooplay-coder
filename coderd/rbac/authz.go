@@ -91,6 +91,7 @@ const (
 	SubjectTypeSCIMProvisioner              SubjectType = "scim_provisioner"
 	SubjectTypeExternalAuthCoordinator      SubjectType = "external_auth_coordinator"
 	SubjectTypeWorkspaceAdmission           SubjectType = "workspace_admission"
+	SubjectTypeWorkspaceAdmissionReader     SubjectType = "workspace_admission_reader"
 )
 
 const (

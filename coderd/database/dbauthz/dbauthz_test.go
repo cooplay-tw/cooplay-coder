@@ -8045,3 +8045,30 @@ func TestAsExternalAuthChecker(t *testing.T) {
 		}
 	})
 }
+
+func TestAsWorkspaceAdmissionReader(t *testing.T) {
+	t.Parallel()
+
+	ctx := dbauthz.AsWorkspaceAdmissionReader(context.Background())
+	actor, ok := dbauthz.ActorFromContext(ctx)
+	require.True(t, ok, "actor must be present")
+
+	auth := rbac.NewStrictCachingAuthorizer(prometheus.NewRegistry())
+
+	// It can only read admission records.
+	err := auth.Authorize(ctx, actor, policy.ActionRead, rbac.ResourceWorkspaceAdmission.InOrg(uuid.New()))
+	require.NoError(t, err)
+	for _, action := range []policy.Action{policy.ActionCreate, policy.ActionUpdate, policy.ActionDelete} {
+		err := auth.Authorize(ctx, actor, action, rbac.ResourceWorkspaceAdmission)
+		require.Error(t, err, "workspace admission %s should be denied", action)
+	}
+
+	// Unlike AsSystemRestricted, it cannot read anything else.
+	for _, res := range []rbac.Object{
+		rbac.ResourceWorkspace, rbac.ResourceProvisionerJobs, rbac.ResourceTemplate,
+		rbac.ResourceUser, rbac.ResourceApiKey, rbac.ResourceOrganization,
+	} {
+		err := auth.Authorize(ctx, actor, policy.ActionRead, res)
+		require.Error(t, err, "%s read should be denied", res.Type)
+	}
+}

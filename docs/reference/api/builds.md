@@ -32,6 +32,13 @@ curl -X GET http://coder-server:8080/api/v2/users/{user}/workspace/{workspacenam
 
 ```json
 {
+  "admission": {
+    "granted_at": "2019-08-24T14:15:22Z",
+    "queue_position": 0,
+    "queued_at": "2019-08-24T14:15:22Z",
+    "reason": "string",
+    "status": "waiting"
+  },
   "build_number": 0,
   "created_at": "2019-08-24T14:15:22Z",
   "daily_cost": 0,
@@ -292,6 +299,13 @@ curl -X GET http://coder-server:8080/api/v2/workspacebuilds/{workspacebuild} \
 
 ```json
 {
+  "admission": {
+    "granted_at": "2019-08-24T14:15:22Z",
+    "queue_position": 0,
+    "queued_at": "2019-08-24T14:15:22Z",
+    "reason": "string",
+    "status": "waiting"
+  },
   "build_number": 0,
   "created_at": "2019-08-24T14:15:22Z",
   "daily_cost": 0,
@@ -1053,6 +1067,13 @@ curl -X GET http://coder-server:8080/api/v2/workspacebuilds/{workspacebuild}/sta
 
 ```json
 {
+  "admission": {
+    "granted_at": "2019-08-24T14:15:22Z",
+    "queue_position": 0,
+    "queued_at": "2019-08-24T14:15:22Z",
+    "reason": "string",
+    "status": "waiting"
+  },
   "build_number": 0,
   "created_at": "2019-08-24T14:15:22Z",
   "daily_cost": 0,
@@ -1424,6 +1445,13 @@ curl -X GET http://coder-server:8080/api/v2/workspaces/{workspace}/builds \
 ```json
 [
   {
+    "admission": {
+      "granted_at": "2019-08-24T14:15:22Z",
+      "queue_position": 0,
+      "queued_at": "2019-08-24T14:15:22Z",
+      "reason": "string",
+      "status": "waiting"
+    },
     "build_number": 0,
     "created_at": "2019-08-24T14:15:22Z",
     "daily_cost": 0,
@@ -1665,6 +1693,12 @@ Status Code **200**
 | Name                             | Type                                                                                                   | Required | Restrictions | Description                                                                                                                                                                                                                                                            |
 |----------------------------------|--------------------------------------------------------------------------------------------------------|----------|--------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `[array item]`                   | array                                                                                                  | false    |              |                                                                                                                                                                                                                                                                        |
+| `» admission`                    | [codersdk.WorkspaceBuildAdmission](schemas.md#codersdkworkspacebuildadmission)                         | false    |              | Admission is the capacity admission of a START build on a template managed by workspace admission. It is omitted for builds that do not need admission.                                                                                                                |
+| `»» granted_at`                  | string(date-time)                                                                                      | false    |              | Granted at is when capacity was granted.                                                                                                                                                                                                                               |
+| `»» queue_position`              | integer                                                                                                | false    |              | Queue position is the capacity queue position reported by the capacity controller. It is unrelated to the provisioner queue position of the job and is only set while the build waits for capacity.                                                                    |
+| `»» queued_at`                   | string(date-time)                                                                                      | false    |              |                                                                                                                                                                                                                                                                        |
+| `»» reason`                      | string                                                                                                 | false    |              | Reason is the waiting or decision reason reported by the capacity controller, for example waiting_for_capacity.                                                                                                                                                        |
+| `»» status`                      | [codersdk.WorkspaceBuildAdmissionStatus](schemas.md#codersdkworkspacebuildadmissionstatus)             | false    |              |                                                                                                                                                                                                                                                                        |
 | `» build_number`                 | integer                                                                                                | false    |              |                                                                                                                                                                                                                                                                        |
 | `» created_at`                   | string(date-time)                                                                                      | false    |              |                                                                                                                                                                                                                                                                        |
 | `» daily_cost`                   | integer                                                                                                | false    |              |                                                                                                                                                                                                                                                                        |
@@ -1843,21 +1877,21 @@ Status Code **200**
 
 #### Enumerated Values
 
-| Property                     | Value(s)                                                                                                                                                                                                                                   |
-|------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `error_code`                 | `INSUFFICIENT_QUOTA`, `REQUIRED_TEMPLATE_VARIABLES`                                                                                                                                                                                        |
-| `workspace_build_transition` | `delete`, `start`, `stop`                                                                                                                                                                                                                  |
-| `status`                     | `canceled`, `canceling`, `connected`, `connecting`, `deleted`, `deleting`, `disconnected`, `exit_failure`, `failed`, `ok`, `pending`, `pipes_left_open`, `running`, `starting`, `stopped`, `stopping`, `succeeded`, `timed_out`, `timeout` |
-| `type`                       | `template_version_dry_run`, `template_version_import`, `workspace_build`                                                                                                                                                                   |
-| `reason`                     | `autostart`, `autostop`, `initiator`                                                                                                                                                                                                       |
-| `health`                     | `disabled`, `healthy`, `initializing`, `unhealthy`                                                                                                                                                                                         |
-| `open_in`                    | `slim-window`, `tab`                                                                                                                                                                                                                       |
-| `sharing_level`              | `authenticated`, `organization`, `owner`, `public`                                                                                                                                                                                         |
-| `state`                      | `complete`, `failure`, `idle`, `working`                                                                                                                                                                                                   |
-| `lifecycle_state`            | `created`, `off`, `ready`, `shutdown_error`, `shutdown_timeout`, `shutting_down`, `start_error`, `start_timeout`, `starting`                                                                                                               |
-| `startup_script_behavior`    | `blocking`, `non-blocking`                                                                                                                                                                                                                 |
-| `workspace_transition`       | `delete`, `start`, `stop`                                                                                                                                                                                                                  |
-| `transition`                 | `delete`, `start`, `stop`                                                                                                                                                                                                                  |
+| Property                     | Value(s)                                                                                                                                                                                                                                                                                            |
+|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `status`                     | `acquired`, `canceled`, `canceling`, `connected`, `connecting`, `deleted`, `deleting`, `disconnected`, `exit_failure`, `failed`, `granted`, `ok`, `pending`, `pipes_left_open`, `rejected`, `revoked`, `running`, `starting`, `stopped`, `stopping`, `succeeded`, `timed_out`, `timeout`, `waiting` |
+| `error_code`                 | `INSUFFICIENT_QUOTA`, `REQUIRED_TEMPLATE_VARIABLES`                                                                                                                                                                                                                                                 |
+| `workspace_build_transition` | `delete`, `start`, `stop`                                                                                                                                                                                                                                                                           |
+| `type`                       | `template_version_dry_run`, `template_version_import`, `workspace_build`                                                                                                                                                                                                                            |
+| `reason`                     | `autostart`, `autostop`, `initiator`                                                                                                                                                                                                                                                                |
+| `health`                     | `disabled`, `healthy`, `initializing`, `unhealthy`                                                                                                                                                                                                                                                  |
+| `open_in`                    | `slim-window`, `tab`                                                                                                                                                                                                                                                                                |
+| `sharing_level`              | `authenticated`, `organization`, `owner`, `public`                                                                                                                                                                                                                                                  |
+| `state`                      | `complete`, `failure`, `idle`, `working`                                                                                                                                                                                                                                                            |
+| `lifecycle_state`            | `created`, `off`, `ready`, `shutdown_error`, `shutdown_timeout`, `shutting_down`, `start_error`, `start_timeout`, `starting`                                                                                                                                                                        |
+| `startup_script_behavior`    | `blocking`, `non-blocking`                                                                                                                                                                                                                                                                          |
+| `workspace_transition`       | `delete`, `start`, `stop`                                                                                                                                                                                                                                                                           |
+| `transition`                 | `delete`, `start`, `stop`                                                                                                                                                                                                                                                                           |
 
 To perform this operation, you must be authenticated. [Learn more](authentication.md).
 
@@ -1922,6 +1956,13 @@ curl -X POST http://coder-server:8080/api/v2/workspaces/{workspace}/builds \
 
 ```json
 {
+  "admission": {
+    "granted_at": "2019-08-24T14:15:22Z",
+    "queue_position": 0,
+    "queued_at": "2019-08-24T14:15:22Z",
+    "reason": "string",
+    "status": "waiting"
+  },
   "build_number": 0,
   "created_at": "2019-08-24T14:15:22Z",
   "daily_cost": 0,

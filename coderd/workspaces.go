@@ -834,7 +834,7 @@ func createWorkspace(
 			ProvisionerJob: *provisionerJob,
 			QueuePosition:  0,
 		},
-		newWorkspaceBuildIndex(nil, nil, nil, nil, nil, nil, nil, provisionerDaemons),
+		newWorkspaceBuildIndex(nil, nil, nil, nil, nil, nil, nil, provisionerDaemons, api.createdWorkspaceBuildAdmissions(ctx, *workspaceBuild)),
 		database.TemplateVersion{},
 	)
 	if err != nil {
@@ -2751,6 +2751,7 @@ func (api *API) workspaceData(ctx context.Context, workspaces []database.Workspa
 		data.logSources,
 		data.templateVersions,
 		data.provisionerDaemons,
+		data.admissions,
 	)
 	if err != nil {
 		return workspaceData{}, xerrors.Errorf("convert workspace builds: %w", err)

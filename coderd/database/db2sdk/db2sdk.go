@@ -970,6 +970,24 @@ func MatchedProvisioners(provisionerDaemons []database.ProvisionerDaemon, now ti
 	return matched
 }
 
+// WorkspaceBuildAdmission converts the admission of a build to the form shown
+// to users. Controller internals such as the reservation, generation and
+// operation are not exposed.
+func WorkspaceBuildAdmission(admission database.WorkspaceBuildAdmission) codersdk.WorkspaceBuildAdmission {
+	var queuePosition *int
+	if admission.QueuePosition.Valid {
+		position := int(admission.QueuePosition.Int32)
+		queuePosition = &position
+	}
+	return codersdk.WorkspaceBuildAdmission{
+		Status:        codersdk.WorkspaceBuildAdmissionStatus(admission.Status),
+		Reason:        admission.Reason,
+		QueuePosition: queuePosition,
+		QueuedAt:      admission.QueuedAt,
+		GrantedAt:     nullTimePtr(admission.GrantedAt),
+	}
+}
+
 func TemplateRoleActions(role codersdk.TemplateRole) []policy.Action {
 	switch role {
 	case codersdk.TemplateRoleAdmin:

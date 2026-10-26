@@ -92,6 +92,7 @@ func (api *API) workspaceBuild(rw http.ResponseWriter, r *http.Request) {
 			data.scripts,
 			data.logSources,
 			nil,
+			data.admissions,
 		),
 		data.templateVersions[0],
 	)
@@ -213,6 +214,7 @@ func (api *API) workspaceBuilds(rw http.ResponseWriter, r *http.Request) {
 		data.logSources,
 		data.templateVersions,
 		data.provisionerDaemons,
+		data.admissions,
 	)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
@@ -304,6 +306,7 @@ func (api *API) workspaceBuildByBuildNumber(rw http.ResponseWriter, r *http.Requ
 			data.scripts,
 			data.logSources,
 			data.provisionerDaemons,
+			data.admissions,
 		),
 		data.templateVersions[0],
 	)
@@ -622,7 +625,7 @@ func (api *API) postWorkspaceBuildsInternal(
 		*workspaceBuild,
 		workspace,
 		queuePos,
-		newWorkspaceBuildIndex(nil, nil, nil, nil, nil, nil, nil, provisionerDaemons),
+		newWorkspaceBuildIndex(nil, nil, nil, nil, nil, nil, nil, provisionerDaemons, api.createdWorkspaceBuildAdmissions(ctx, *workspaceBuild)),
 		database.TemplateVersion{},
 	)
 	if err != nil {
@@ -1131,6 +1134,7 @@ type workspaceBuildsData struct {
 	scripts            []database.GetWorkspaceAgentScriptsByAgentIDsRow
 	logSources         []database.WorkspaceAgentLogSource
 	provisionerDaemons []database.GetEligibleProvisionerDaemonsByProvisionerJobIDsRow
+	admissions         []database.WorkspaceBuildAdmission
 }
 
 func (api *API) workspaceBuildsData(ctx context.Context, workspaceBuilds []database.WorkspaceBuild, cfg latestBuildRelated) (workspaceBuildsData, error) {
@@ -1180,11 +1184,21 @@ func (api *API) workspaceBuildsData(ctx context.Context, workspaceBuilds []datab
 		}
 	}
 
+	var admissions []database.WorkspaceBuildAdmission
+	if cfg.Admission {
+		var err error
+		admissions, err = api.workspaceBuildAdmissions(ctx, workspaceBuilds)
+		if err != nil {
+			return workspaceBuildsData{}, err
+		}
+	}
+
 	if cfg.Resources == nil {
 		return workspaceBuildsData{
 			jobs:               jobs,
 			templateVersions:   templateVersions,
 			provisionerDaemons: pendingJobProvisioners,
+			admissions:         admissions,
 		}, nil
 	}
 
@@ -1199,6 +1213,7 @@ func (api *API) workspaceBuildsData(ctx context.Context, workspaceBuilds []datab
 			jobs:               jobs,
 			templateVersions:   templateVersions,
 			provisionerDaemons: pendingJobProvisioners,
+			admissions:         admissions,
 		}, nil
 	}
 
@@ -1243,6 +1258,7 @@ func (api *API) workspaceBuildsData(ctx context.Context, workspaceBuilds []datab
 			resources:          resources,
 			metadata:           metadata,
 			provisionerDaemons: pendingJobProvisioners,
+			admissions:         admissions,
 		}, nil
 	}
 	agentsCfg := cfg.Resources.Agents
@@ -1310,6 +1326,7 @@ func (api *API) workspaceBuildsData(ctx context.Context, workspaceBuilds []datab
 		scripts:            scripts,
 		logSources:         logSources,
 		provisionerDaemons: pendingJobProvisioners,
+		admissions:         admissions,
 	}, nil
 }
 
@@ -1325,6 +1342,7 @@ type workspaceBuildIndex struct {
 	scriptsByAgentID     map[uuid.UUID][]database.GetWorkspaceAgentScriptsByAgentIDsRow
 	logSourcesByAgentID  map[uuid.UUID][]database.WorkspaceAgentLogSource
 	daemonsByJobID       map[uuid.UUID][]database.ProvisionerDaemon
+	admissionsByBuildID  map[uuid.UUID]database.WorkspaceBuildAdmission
 }
 
 // newWorkspaceBuildIndex makes one pass over each slice, copying rows into
@@ -1338,6 +1356,7 @@ func newWorkspaceBuildIndex(
 	agentScripts []database.GetWorkspaceAgentScriptsByAgentIDsRow,
 	agentLogSources []database.WorkspaceAgentLogSource,
 	provisionerDaemons []database.GetEligibleProvisionerDaemonsByProvisionerJobIDsRow,
+	buildAdmissions []database.WorkspaceBuildAdmission,
 ) *workspaceBuildIndex {
 	index := &workspaceBuildIndex{
 		resourcesByJobID:     make(map[uuid.UUID][]database.WorkspaceResource),
@@ -1348,6 +1367,7 @@ func newWorkspaceBuildIndex(
 		scriptsByAgentID:     make(map[uuid.UUID][]database.GetWorkspaceAgentScriptsByAgentIDsRow),
 		logSourcesByAgentID:  make(map[uuid.UUID][]database.WorkspaceAgentLogSource),
 		daemonsByJobID:       make(map[uuid.UUID][]database.ProvisionerDaemon),
+		admissionsByBuildID:  make(map[uuid.UUID]database.WorkspaceBuildAdmission, len(buildAdmissions)),
 	}
 	for _, resource := range workspaceResources {
 		index.resourcesByJobID[resource.JobID] = append(index.resourcesByJobID[resource.JobID], resource)
@@ -1372,6 +1392,9 @@ func newWorkspaceBuildIndex(
 	}
 	for _, daemon := range provisionerDaemons {
 		index.daemonsByJobID[daemon.JobID] = append(index.daemonsByJobID[daemon.JobID], daemon.ProvisionerDaemon)
+	}
+	for _, admission := range buildAdmissions {
+		index.admissionsByBuildID[admission.WorkspaceBuildID] = admission
 	}
 	// Agents within a resource are ordered by display order, then name.
 	for _, agents := range index.agentsByResourceID {
@@ -1398,6 +1421,7 @@ func (api *API) convertWorkspaceBuilds(
 	agentLogSources []database.WorkspaceAgentLogSource,
 	templateVersions []database.TemplateVersion,
 	provisionerDaemons []database.GetEligibleProvisionerDaemonsByProvisionerJobIDsRow,
+	buildAdmissions []database.WorkspaceBuildAdmission,
 ) ([]codersdk.WorkspaceBuild, error) {
 	workspaceByID := map[uuid.UUID]database.Workspace{}
 	for _, workspace := range workspaces {
@@ -1421,6 +1445,7 @@ func (api *API) convertWorkspaceBuilds(
 		agentScripts,
 		agentLogSources,
 		provisionerDaemons,
+		buildAdmissions,
 	)
 
 	// Should never be nil for API consistency
@@ -1514,6 +1539,11 @@ func (api *API) convertWorkspaceBuild(
 	if build.HasExternalAgent.Valid {
 		hasExternalAgent = &build.HasExternalAgent.Bool
 	}
+	var admission *codersdk.WorkspaceBuildAdmission
+	if dbAdmission, ok := index.admissionsByBuildID[build.ID]; ok {
+		converted := db2sdk.WorkspaceBuildAdmission(dbAdmission)
+		admission = &converted
+	}
 
 	apiJob := convertProvisionerJob(job)
 	transition := codersdk.WorkspaceTransition(build.Transition)
@@ -1543,6 +1573,7 @@ func (api *API) convertWorkspaceBuild(
 		TemplateVersionPresetID: presetID,
 		HasAITask:               hasAITask,
 		HasExternalAgent:        hasExternalAgent,
+		Admission:               admission,
 	}, nil
 }
 

@@ -23,6 +23,7 @@ func TestAllWorkspaceRelated(t *testing.T) {
 	require.NotNil(t, all.LatestBuild.Job)
 	require.True(t, all.LatestBuild.Job.QueuePosition)
 	require.True(t, all.LatestBuild.TemplateVersion)
+	require.True(t, all.LatestBuild.Admission)
 	require.NotNil(t, all.LatestBuild.Resources)
 	require.True(t, all.LatestBuild.Resources.Metadata)
 	require.NotNil(t, all.LatestBuild.Resources.Agents)
@@ -57,6 +58,7 @@ func TestWorkspaceBuildsDataQueryGating(t *testing.T) {
 		JobID:             uuid.New(),
 		WorkspaceID:       uuid.New(),
 		TemplateVersionID: uuid.New(),
+		Transition:        database.WorkspaceTransitionStart,
 	}
 	resource := database.WorkspaceResource{ID: uuid.New(), JobID: build.JobID}
 	agent := database.WorkspaceAgent{ID: uuid.New(), ResourceID: resource.ID}
@@ -71,6 +73,10 @@ func TestWorkspaceBuildsDataQueryGating(t *testing.T) {
 	expectTemplateVersion := func(db *dbmock.MockStore) {
 		db.EXPECT().GetTemplateVersionsByIDs(gomock.Any(), gomock.Any()).
 			Return([]database.TemplateVersion{}, nil)
+	}
+	expectAdmission := func(db *dbmock.MockStore) {
+		db.EXPECT().GetWorkspaceBuildAdmissionsByBuildIDs(gomock.Any(), []uuid.UUID{build.ID}).
+			Return([]database.WorkspaceBuildAdmission{}, nil)
 	}
 	expectResources := func(db *dbmock.MockStore) {
 		db.EXPECT().GetWorkspaceResourcesByJobIDs(gomock.Any(), gomock.Any()).
@@ -104,6 +110,11 @@ func TestWorkspaceBuildsDataQueryGating(t *testing.T) {
 			name:  "TemplateVersion",
 			cfg:   latestBuildRelated{TemplateVersion: true},
 			setup: expectTemplateVersion,
+		},
+		{
+			name:  "Admission",
+			cfg:   latestBuildRelated{Admission: true},
+			setup: expectAdmission,
 		},
 		{
 			name:  "Resources",
@@ -173,6 +184,7 @@ func TestWorkspaceBuildsDataQueryGating(t *testing.T) {
 			setup: func(db *dbmock.MockStore) {
 				expectJob(db)
 				expectTemplateVersion(db)
+				expectAdmission(db)
 				expectResources(db)
 				expectAgents(db)
 				expectApps(db)
@@ -201,6 +213,31 @@ func TestWorkspaceBuildsDataQueryGating(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// TestWorkspaceBuildsDataAdmissionOnlyForStart verifies that admissions are
+// only queried for START builds, the only builds that can have one.
+func TestWorkspaceBuildsDataAdmissionOnlyForStart(t *testing.T) {
+	t.Parallel()
+
+	ctx := testutil.Context(t, testutil.WaitShort)
+	ctrl := gomock.NewController(t)
+	db := dbmock.NewMockStore(ctrl)
+
+	start := database.WorkspaceBuild{ID: uuid.New(), Transition: database.WorkspaceTransitionStart}
+	stop := database.WorkspaceBuild{ID: uuid.New(), Transition: database.WorkspaceTransitionStop}
+	admission := database.WorkspaceBuildAdmission{WorkspaceBuildID: start.ID, Status: database.WorkspaceAdmissionStatusWaiting}
+	db.EXPECT().GetWorkspaceBuildAdmissionsByBuildIDs(gomock.Any(), []uuid.UUID{start.ID}).
+		Return([]database.WorkspaceBuildAdmission{admission}, nil)
+
+	api := &API{Options: &Options{Database: db}}
+	data, err := api.workspaceBuildsData(ctx, []database.WorkspaceBuild{stop, start}, latestBuildRelated{Admission: true})
+	require.NoError(t, err)
+	require.Equal(t, []database.WorkspaceBuildAdmission{admission}, data.admissions)
+
+	// A selection of only STOP builds issues no query at all.
+	_, err = api.workspaceBuildsData(ctx, []database.WorkspaceBuild{stop}, latestBuildRelated{Admission: true})
+	require.NoError(t, err)
 }
 
 // TestWorkspaceBuildsDataResourcesShortCircuit verifies that when resources are

@@ -29099,6 +29099,14 @@
 		"codersdk.WorkspaceBuild": {
 			"type": "object",
 			"properties": {
+				"admission": {
+					"description": "Admission is the capacity admission of a START build on a template\nmanaged by workspace admission. It is omitted for builds that do not\nneed admission.",
+					"allOf": [
+						{
+							"$ref": "#/definitions/codersdk.WorkspaceBuildAdmission"
+						}
+					]
+				},
 				"build_number": {
 					"type": "integer"
 				},
@@ -29216,6 +29224,62 @@
 					"type": "string"
 				}
 			}
+		},
+		"codersdk.WorkspaceBuildAdmission": {
+			"type": "object",
+			"properties": {
+				"granted_at": {
+					"description": "GrantedAt is when capacity was granted.",
+					"type": "string",
+					"format": "date-time"
+				},
+				"queue_position": {
+					"description": "QueuePosition is the capacity queue position reported by the capacity\ncontroller. It is unrelated to the provisioner queue position of the\njob and is only set while the build waits for capacity.",
+					"type": "integer"
+				},
+				"queued_at": {
+					"type": "string",
+					"format": "date-time"
+				},
+				"reason": {
+					"description": "Reason is the waiting or decision reason reported by the capacity\ncontroller, for example waiting_for_capacity.",
+					"type": "string"
+				},
+				"status": {
+					"enum": [
+						"waiting",
+						"granted",
+						"acquired",
+						"rejected",
+						"canceled",
+						"revoked"
+					],
+					"allOf": [
+						{
+							"$ref": "#/definitions/codersdk.WorkspaceBuildAdmissionStatus"
+						}
+					]
+				}
+			}
+		},
+		"codersdk.WorkspaceBuildAdmissionStatus": {
+			"type": "string",
+			"enum": [
+				"waiting",
+				"granted",
+				"acquired",
+				"rejected",
+				"canceled",
+				"revoked"
+			],
+			"x-enum-varnames": [
+				"WorkspaceBuildAdmissionStatusWaiting",
+				"WorkspaceBuildAdmissionStatusGranted",
+				"WorkspaceBuildAdmissionStatusAcquired",
+				"WorkspaceBuildAdmissionStatusRejected",
+				"WorkspaceBuildAdmissionStatusCanceled",
+				"WorkspaceBuildAdmissionStatusRevoked"
+			]
 		},
 		"codersdk.WorkspaceBuildParameter": {
 			"type": "object",
