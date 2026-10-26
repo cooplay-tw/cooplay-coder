@@ -7,7 +7,7 @@ the license.
 
 - Base: Coder tag `v2.37.6`, commit `c57613f858ba063507e4106ec3a7ce683df4d1d2`.
 - Modified by: Cooplay.
-- Date of modification: 2026-10-25.
+- Dates of modification: 2026-10-25 and 2026-10-26.
 
 The modifications only use and change AGPL-licensed code. No code under
 `enterprise/` is used, enabled or modified, and no entitlement checks were
@@ -45,14 +45,34 @@ Modified areas:
   managed templates.
 - Build cancellation (`coderd/workspacebuilds.go`): canceling a build that no
   provisioner acquired ends its admission in the same transaction.
-- RBAC (`coderd/rbac`): the `workspace_admission` resource, its API key scopes
-  and dedicated `dbauthz` subjects.
+- RBAC (`coderd/rbac`, `coderd/database/dbauthz`): the `workspace_admission`
+  resource, its API key scopes and dedicated `dbauthz` subjects, including a
+  read-only subject for the admission of builds a requester may already read,
+  and read access for the provisioner daemon.
 - Restricted admission API (`coderd/workspaceadmission`, `cli/server.go`,
   `cli/server_admission.go`, `codersdk/deployment.go`): a separate optional
   listener configured with the hidden server options
   `--workspace-admission-listen-address` and
   `--workspace-admission-token-hash-file`, authenticated with a single
   service bearer token.
+- Workspace build API (`codersdk/workspacebuilds.go`, `coderd`): workspace
+  builds carry an optional `admission` object with `status`, `reason`,
+  `queue_position`, `queued_at` and `granted_at`, filled with one batched
+  query for single builds, build lists, workspaces, workspace lists and the
+  responses of creating a workspace or build. Users have no permission on
+  admission records; the rows are read only for builds the requester was
+  already authorized to read.
+- CLI (`cli/cliui/provisionerjob.go`): commands that wait on a workspace
+  build print the capacity wait with its reason and capacity queue
+  position, report when capacity is granted, and show the rejection reason.
+- Dashboard (`site/src/pages/WorkspacePage`): the workspace page shows
+  capacity waits, granted builds waiting for a provisioner and rejections,
+  separately from the provisioner queue. The admission service publishes a
+  workspace change after grants, requeues and display updates so the page
+  stays current.
+- Provisioner job metadata (`coderd/provisionerdserver`): builds of managed
+  templates never mint or receive the workspace owner's session token and
+  never receive the owner's OIDC access token.
 - Test infrastructure (`coderd/database/dbtestutil`):
   `CODER_TEST_POSTGRES_PORT` selects the port of the shared test Postgres
   server so tests never use an unrelated server on port 5432.
