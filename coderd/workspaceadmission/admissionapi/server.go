@@ -149,6 +149,10 @@ func (s *Server) Handler() http.Handler {
 			})
 		})
 		r.Post("/jobs/{job_id}/cancel", s.cancelJob)
+		r.Route("/wake-intents", func(r chi.Router) {
+			r.Get("/", s.listWakeIntents)
+			r.Post("/{workspace_id}/ack", s.ackWakeIntent)
+		})
 	})
 	r.NotFound(func(rw http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), rw, http.StatusNotFound, CodeNotFound, "Route not found.", "")

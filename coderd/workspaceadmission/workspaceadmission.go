@@ -42,9 +42,25 @@ const (
 // Notifications only wake watchers early; consumers must not rely on them.
 const EventChannel = "workspace_admission:changed"
 
+// Kinds of intent events published on EventChannel.
+const (
+	// EventKindWakeIntent is published after a wake intent was recorded.
+	EventKindWakeIntent = "wake_intent"
+	// EventKindKeepaliveIntent is published after a keepalive intent was
+	// recorded.
+	EventKindKeepaliveIntent = "keepalive_intent"
+)
+
 // Event is the payload published on EventChannel.
 type Event struct {
+	// JobID is the build job whose admission changed. It is zero for intent
+	// events.
 	JobID uuid.UUID `json:"job_id"`
+	// Kind is empty for admission changes and one of the EventKind values
+	// for intents.
+	Kind string `json:"kind,omitempty"`
+	// WorkspaceID is the workspace of an intent event.
+	WorkspaceID *uuid.UUID `json:"workspace_id,omitempty"`
 }
 
 // Publish notifies admission watchers that the admission of jobID changed.
@@ -56,6 +72,19 @@ func Publish(ps pubsub.Pubsub, jobID uuid.UUID) error {
 	}
 	if err := ps.Publish(EventChannel, msg); err != nil {
 		return xerrors.Errorf("publish workspace admission event: %w", err)
+	}
+	return nil
+}
+
+// PublishIntent notifies admission watchers that an intent of the given kind
+// was recorded for a workspace. Call it only after the intent is committed.
+func PublishIntent(ps pubsub.Pubsub, kind string, workspaceID uuid.UUID) error {
+	msg, err := json.Marshal(Event{Kind: kind, WorkspaceID: &workspaceID})
+	if err != nil {
+		return xerrors.Errorf("marshal workspace admission intent event: %w", err)
+	}
+	if err := ps.Publish(EventChannel, msg); err != nil {
+		return xerrors.Errorf("publish workspace admission intent event: %w", err)
 	}
 	return nil
 }

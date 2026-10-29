@@ -390,8 +390,64 @@ func TestWorkspaceUpdates(t *testing.T) {
 	require.Equal(t, expected.GetUpsertedWorkspaces()[0].GetId(), updates.GetUpsertedWorkspaces()[0].GetId())
 }
 
+// TestWorkspaceUpdatesObserver checks that a workspace updates subscription
+// is reported to the tunnel authorizer of the connection before the first
+// update is sent.
+func TestWorkspaceUpdatesObserver(t *testing.T) {
+	t.Parallel()
+
+	ctx := testutil.Context(t, testutil.WaitShort)
+	ctrl := gomock.NewController(t)
+	updatesProvider := tailnettest.NewMockWorkspaceUpdatesProvider(ctrl)
+	mSub := tailnettest.NewMockSubscription(ctrl)
+	updatesCh := make(chan *proto.WorkspaceUpdate, 1)
+	clientID := uuid.UUID{0x05}
+	auth := &observingTunnelAuth{}
+
+	_, client := createUpdateServiceWithAuth(t, ctx, clientID, updatesProvider, tailnet.ClientUserCoordinateeAuth{Auth: auth})
+	updatesProvider.EXPECT().Subscribe(gomock.Any(), clientID).
+		Times(1).
+		DoAndReturn(func(context.Context, uuid.UUID) (tailnet.Subscription, error) {
+			// The subscription starts after the observer was told.
+			assert.True(t, auth.observed.Load())
+			return mSub, nil
+		})
+	mSub.EXPECT().Updates().MinTimes(1).Return(updatesCh)
+	mSub.EXPECT().Close().Times(1).Return(nil)
+	updatesCh <- &proto.WorkspaceUpdate{}
+
+	require.False(t, auth.observed.Load())
+	stream, err := client.WorkspaceUpdates(ctx, &proto.WorkspaceUpdatesRequest{
+		WorkspaceOwnerId: tailnet.UUIDToByteSlice(clientID),
+	})
+	require.NoError(t, err)
+	defer stream.Close()
+	_, err = stream.Recv()
+	require.NoError(t, err)
+	require.True(t, auth.observed.Load())
+}
+
+type observingTunnelAuth struct {
+	fakeTunnelAuth
+	observed atomic.Bool
+}
+
+func (a *observingTunnelAuth) ObserveWorkspaceUpdates() {
+	a.observed.Store(true)
+}
+
+var _ tailnet.WorkspaceUpdatesObserver = (*observingTunnelAuth)(nil)
+
 //nolint:revive // t takes precedence
 func createUpdateService(t *testing.T, ctx context.Context, clientID uuid.UUID, updates tailnet.WorkspaceUpdatesProvider, auditor tailnet.TunnelAuditor) (*tailnettest.FakeCoordinator, proto.DRPCTailnetClient) {
+	return createUpdateServiceWithAuth(t, ctx, clientID, updates, tailnet.ClientUserCoordinateeAuth{
+		Auth:    &fakeTunnelAuth{},
+		Auditor: auditor,
+	})
+}
+
+//nolint:revive // t takes precedence
+func createUpdateServiceWithAuth(t *testing.T, ctx context.Context, clientID uuid.UUID, updates tailnet.WorkspaceUpdatesProvider, auth tailnet.CoordinateeAuth) (*tailnettest.FakeCoordinator, proto.DRPCTailnetClient) {
 	fCoord := tailnettest.NewFakeCoordinator()
 	var coord tailnet.Coordinator = fCoord
 	coordPtr := atomic.Pointer[tailnet.Coordinator]{}
@@ -416,10 +472,7 @@ func createUpdateService(t *testing.T, ctx context.Context, clientID uuid.UUID, 
 		err := uut.ServeClient(ctx, "2.0", s, tailnet.StreamID{
 			Name: "client",
 			ID:   clientID,
-			Auth: tailnet.ClientUserCoordinateeAuth{
-				Auth:    &fakeTunnelAuth{},
-				Auditor: auditor,
-			},
+			Auth: auth,
 		})
 		t.Logf("ServeClient returned; err=%v", err)
 		errCh <- err

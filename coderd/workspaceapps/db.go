@@ -28,6 +28,7 @@ import (
 	"github.com/coder/coder/v2/coderd/rbac"
 	"github.com/coder/coder/v2/coderd/rbac/policy"
 	"github.com/coder/coder/v2/coderd/tracing"
+	"github.com/coder/coder/v2/coderd/workspaceadmission/wakeintent"
 	"github.com/coder/coder/v2/codersdk"
 )
 
@@ -47,6 +48,10 @@ type DBTokenProvider struct {
 	WorkspaceAgentInactiveTimeout   time.Duration
 	WorkspaceAppAuditSessionTimeout time.Duration
 	Keycache                        cryptokeys.SigningKeycache
+	// WakeHook, if set, is called when an authorized request asks for a
+	// token to an agent, before the agent's connection is checked, so that
+	// a request to a sleeping workspace can wake it. It must not block.
+	WakeHook func(agentID, userID uuid.UUID, source wakeintent.Source)
 }
 
 var _ SignedTokenProvider = &DBTokenProvider{}
@@ -228,6 +233,20 @@ func (p *DBTokenProvider) Issue(ctx context.Context, rw http.ResponseWriter, r *
 
 		http.Redirect(rw, r, u.String(), http.StatusSeeOther)
 		return nil, "", false
+	}
+
+	// The requester may use the agent. Report it before the online check
+	// below rejects an agent that is offline because its workspace sleeps.
+	if p.WakeHook != nil {
+		source := wakeintent.SourceApp
+		if appReq.AccessMethod == AccessMethodTerminal {
+			source = wakeintent.SourcePTY
+		}
+		requesterID := uuid.Nil
+		if apiKey != nil {
+			requesterID = apiKey.UserID
+		}
+		p.WakeHook(dbReq.Agent.ID, requesterID, source)
 	}
 
 	// Check that the agent is online.

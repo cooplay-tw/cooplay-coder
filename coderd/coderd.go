@@ -93,6 +93,7 @@ import (
 	"github.com/coder/coder/v2/coderd/usage"
 	"github.com/coder/coder/v2/coderd/util/slice"
 	"github.com/coder/coder/v2/coderd/webpush"
+	"github.com/coder/coder/v2/coderd/workspaceadmission/wakeintent"
 	"github.com/coder/coder/v2/coderd/workspaceapps"
 	"github.com/coder/coder/v2/coderd/workspaceapps/appurl"
 	"github.com/coder/coder/v2/coderd/workspaceconnwatcher"
@@ -742,6 +743,15 @@ func New(options *Options) *API {
 		AISeatTracker:               aiseats.Noop{},
 	}
 
+	api.wakeIntents = wakeintent.New(wakeintent.Options{
+		Logger:                         options.Logger.Named("wake_intents"),
+		Database:                       options.Database,
+		Pubsub:                         options.Pubsub,
+		Registerer:                     options.PrometheusRegistry,
+		Clock:                          options.Clock,
+		AgentInactiveDisconnectTimeout: options.AgentInactiveDisconnectTimeout,
+	})
+
 	api.WorkspaceAppsProvider = workspaceapps.NewDBTokenProvider(
 		ctx,
 		options.Logger.Named("workspaceapps"),
@@ -755,6 +765,11 @@ func New(options *Options) *API {
 		options.WorkspaceAppAuditSessionTimeout,
 		options.AppSigningKeyCache,
 	)
+	if provider, ok := api.WorkspaceAppsProvider.(*workspaceapps.DBTokenProvider); ok {
+		// Terminal and app requests to an offline agent of a sleeping
+		// managed workspace wake it.
+		provider.WakeHook = api.wakeIntents.Enqueue
+	}
 
 	f := appearance.NewDefaultFetcher(options.Database, api.DeploymentValues.DocsURL.String())
 	api.AppearanceFetcher.Store(&f)
@@ -1065,6 +1080,7 @@ func New(options *Options) *API {
 		DisablePathApps:          options.DeploymentValues.DisablePathApps.Value(),
 		CookiesConfig:            options.DeploymentValues.HTTPCookies,
 		APIKeyEncryptionKeycache: options.AppEncryptionKeyCache,
+		WakeHook:                 api.wakeIntents.Enqueue,
 	})
 
 	api.workspaceAgentConnWatcher = workspaceconnwatcher.New(api.ctx, options.Logger, options.Pubsub, options.Database)
@@ -2341,6 +2357,9 @@ type API struct {
 
 	workspaceAgentConnWatcher  *workspaceconnwatcher.Watcher
 	workspaceBuildOrchestrator *wsbuildorchestrator.Orchestrator
+	// wakeIntents records connections to agents of managed workspaces
+	// that may need a wake.
+	wakeIntents *wakeintent.Recorder
 }
 
 // chatDaemonPublishDiffStatusChangeFunc returns chatDaemon's
@@ -2404,6 +2423,7 @@ func (api *API) Close() error {
 		api.updateChecker.Close()
 	}
 	_ = api.workspaceAppServer.Close()
+	api.wakeIntents.Close()
 	_ = api.agentProvider.Close()
 	if api.derpCloseFunc != nil {
 		api.derpCloseFunc()

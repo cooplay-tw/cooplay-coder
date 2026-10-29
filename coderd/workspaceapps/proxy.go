@@ -27,6 +27,7 @@ import (
 	"github.com/coder/coder/v2/coderd/jwtutils"
 	"github.com/coder/coder/v2/coderd/tracing"
 	"github.com/coder/coder/v2/coderd/util/slice"
+	"github.com/coder/coder/v2/coderd/workspaceadmission/wakeintent"
 	"github.com/coder/coder/v2/coderd/workspaceapps/appurl"
 	"github.com/coder/coder/v2/coderd/workspaceapps/cors"
 	"github.com/coder/coder/v2/codersdk"
@@ -113,6 +114,14 @@ type ServerOptions struct {
 	AgentProvider  AgentProvider
 	StatsCollector *StatsCollector
 	WSWatcher      *httpapi.WSWatcher
+
+	// WakeHook, if set, is called after a terminal or app request to an
+	// agent was authorized and before the agent is dialed, so that a
+	// sleeping workspace can be woken. The user is the owner of the app the
+	// request was authorized for. It must not block. Requests that need a
+	// new token are reported by the token provider instead, because it
+	// rejects offline agents before the request reaches the proxy.
+	WakeHook func(agentID, userID uuid.UUID, source wakeintent.Source)
 }
 
 // Server serves workspace apps endpoints, including:
@@ -659,6 +668,7 @@ func (s *Server) proxyWorkspaceApp(rw http.ResponseWriter, r *http.Request, appT
 		appURL.Scheme = protocol
 	}
 
+	s.wake(appToken, wakeintent.SourceApp)
 	proxy := s.AgentProvider.ReverseProxy(appURL, s.DashboardURL, appToken.AgentID, app, s.Hostname)
 
 	proxy.ModifyResponse = func(r *http.Response) error {
@@ -755,6 +765,7 @@ func (s *Server) workspaceAgentPTY(rw http.ResponseWriter, r *http.Request) {
 	}
 	log := s.Logger.With(slog.F("agent_id", appToken.AgentID))
 	log.Debug(ctx, "resolved PTY request")
+	s.wake(*appToken, wakeintent.SourcePTY)
 
 	values := r.URL.Query()
 	parser := httpapi.NewQueryParamParser()
@@ -825,6 +836,13 @@ func (s *Server) workspaceAgentPTY(rw http.ResponseWriter, r *http.Request) {
 
 	agentssh.Bicopy(ctx, wsNetConn, ptNetConn)
 	log.Debug(ctx, "pty Bicopy finished")
+}
+
+// wake reports an authorized request to the agent of appToken to WakeHook.
+func (s *Server) wake(appToken SignedToken, source wakeintent.Source) {
+	if s.WakeHook != nil {
+		s.WakeHook(appToken.AgentID, appToken.UserID, source)
+	}
 }
 
 func (s *Server) collectStats(stats StatsReport) {

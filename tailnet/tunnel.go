@@ -162,6 +162,16 @@ func (a ClientUserCoordinateeAuth) Authorize(ctx context.Context, req *proto.Coo
 	return handleClientNodeRequests(req)
 }
 
+// ObserveWorkspaceUpdates forwards the workspace updates subscription of the
+// connection to the tunnel authorizer when it observes it.
+func (a ClientUserCoordinateeAuth) ObserveWorkspaceUpdates() {
+	if observer, ok := a.Auth.(WorkspaceUpdatesObserver); ok {
+		observer.ObserveWorkspaceUpdates()
+	}
+}
+
+var _ WorkspaceUpdatesObserver = ClientUserCoordinateeAuth{}
+
 // handleClientNodeRequests validates GetUpdateSelf requests and declines ReadyForHandshake requests
 func handleClientNodeRequests(req *proto.CoordinateRequest) error {
 	if err := validateUpdateSelf(req); err != nil {

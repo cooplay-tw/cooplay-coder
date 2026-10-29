@@ -274,6 +274,66 @@ type CancelJobResponse struct {
 	Job                 JobState `json:"job"`
 }
 
+// Results of an acknowledged wake intent.
+const (
+	// WakeResultWoken means the controller woke the workspace.
+	WakeResultWoken = "woken"
+	// WakeResultAlreadyRunning means the workspace was already running.
+	WakeResultAlreadyRunning = "already_running"
+	// WakeResultFailed means the wake failed.
+	WakeResultFailed = "failed"
+	// WakeResultIgnored means the controller does not wake this workspace,
+	// for example because its pool has no power management.
+	WakeResultIgnored = "ignored"
+)
+
+// WakeIntent is a request to wake a managed workspace, recorded when a
+// client connected to one of its agents. It is pending while AckedAt is
+// null.
+type WakeIntent struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	// AgentID is the agent the latest request tried to reach.
+	AgentID uuid.UUID `json:"agent_id"`
+	// Source is the client path of the latest request: tailnet, cli, pty
+	// or app.
+	Source string `json:"source"`
+	// RequestedBy is the user ID of the latest request, or empty when the
+	// requester was not a user.
+	RequestedBy string `json:"requested_by"`
+	// FirstRequestedAt is the first request since the last
+	// acknowledgement.
+	FirstRequestedAt time.Time `json:"first_requested_at"`
+	// LastRequestedAt identifies the latest request. Acknowledgements must
+	// echo it unchanged.
+	LastRequestedAt time.Time `json:"last_requested_at"`
+	// RequestCount counts the requests since the last acknowledgement.
+	RequestCount    int        `json:"request_count"`
+	AckedAt         *time.Time `json:"acked_at,omitempty"`
+	AckedPowerEpoch *int64     `json:"acked_power_epoch,omitempty"`
+}
+
+// ListWakeIntentsResponse is the body of GET /v1/wake-intents.
+type ListWakeIntentsResponse struct {
+	Intents []WakeIntent `json:"intents"`
+}
+
+// AckWakeIntentRequest is the body of POST
+// /v1/wake-intents/{workspace_id}/ack.
+type AckWakeIntentRequest struct {
+	// LastRequestedAt is the latest request the controller acted on.
+	LastRequestedAt time.Time `json:"last_requested_at"`
+	// PowerEpoch is the controller power epoch after the wake.
+	PowerEpoch int64 `json:"power_epoch"`
+	// Result is woken, already_running, failed or ignored.
+	Result string `json:"result"`
+}
+
+// AckIntentResponse is the body of an intent acknowledgement. Acked is false
+// when a newer request arrived or the workspace has no intent.
+type AckIntentResponse struct {
+	Acked bool `json:"acked"`
+}
+
 func timePtr(t sql.NullTime) *time.Time {
 	if !t.Valid {
 		return nil
@@ -450,4 +510,24 @@ func convertBuildJob(build database.WorkspaceBuild, job database.ProvisionerJob,
 		b.AdmissionStatus = string(admission.Status)
 	}
 	return b
+}
+
+func convertWakeIntent(row database.WorkspaceAdmissionWakeIntent) WakeIntent {
+	i := WakeIntent{
+		WorkspaceID:      row.WorkspaceID,
+		AgentID:          row.AgentID,
+		Source:           row.Source,
+		FirstRequestedAt: row.FirstRequestedAt,
+		LastRequestedAt:  row.LastRequestedAt,
+		RequestCount:     int(row.RequestCount),
+		AckedAt:          timePtr(row.AckedAt),
+	}
+	if row.RequestedBy.Valid {
+		i.RequestedBy = row.RequestedBy.UUID.String()
+	}
+	if row.AckedPowerEpoch.Valid {
+		v := row.AckedPowerEpoch.Int64
+		i.AckedPowerEpoch = &v
+	}
+	return i
 }

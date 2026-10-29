@@ -42,6 +42,7 @@ import (
 	"github.com/coder/coder/v2/coderd/rbac/policy"
 	"github.com/coder/coder/v2/coderd/telemetry"
 	maputil "github.com/coder/coder/v2/coderd/util/maps"
+	"github.com/coder/coder/v2/coderd/workspaceadmission/wakeintent"
 	"github.com/coder/coder/v2/coderd/wspubsub"
 	"github.com/coder/coder/v2/coderd/x/gitsync"
 	"github.com/coder/coder/v2/codersdk"
@@ -1323,6 +1324,9 @@ func (api *API) workspaceAgentClientCoordinate(rw http.ResponseWriter, r *http.R
 		httpapi.ResourceNotFound(rw)
 		return
 	}
+	// A client coordinating with an agent of a sleeping managed workspace
+	// wakes it.
+	api.wakeIntents.Enqueue(waws.WorkspaceAgent.ID, wakeRequesterID(r), wakeintent.SourceTailnet)
 
 	// This is used by Enterprise code to control the functionality of this route.
 	// Namely, disabling the route using `CODER_BROWSER_ONLY`.
@@ -2585,10 +2589,12 @@ func (api *API) tailnetRPCConn(rw http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	ctx = api.wsWatcher.Watch(ctx, api.Logger, conn)
 	auth := tailnet.ClientUserCoordinateeAuth{
-		Auth: &rbacAuthorizer{
+		// Tunnels to agents of sleeping managed workspaces wake them,
+		// except from Coder Connect.
+		Auth: newWakeIntentAuthorizer(&rbacAuthorizer{
 			sshPrep: sshPrep,
 			db:      api.Database,
-		},
+		}, api.wakeIntents, apiKey.UserID, r),
 		Auditor: api.tunnelAuditor(r),
 	}
 	err = api.TailnetClientService.ServeClient(ctx, version, wsNetConn, tailnet.StreamID{

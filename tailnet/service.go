@@ -55,6 +55,15 @@ type TunnelAuthorizer interface {
 	AuthorizeTunnel(ctx context.Context, agentID uuid.UUID) error
 }
 
+// WorkspaceUpdatesObserver is implemented by a CoordinateeAuth (or the
+// TunnelAuthorizer of a ClientUserCoordinateeAuth) that needs to know that
+// its connection subscribed to workspace updates. Only Coder Connect does
+// that, and it subscribes before it learns the agents it opens tunnels to.
+// ObserveWorkspaceUpdates must not block.
+type WorkspaceUpdatesObserver interface {
+	ObserveWorkspaceUpdates()
+}
+
 type ClientServiceOptions struct {
 	Logger                   slog.Logger
 	CoordPtr                 *atomic.Pointer[Coordinator]
@@ -241,6 +250,15 @@ func (s *DRPCService) WorkspaceUpdates(req *proto.WorkspaceUpdatesRequest, strea
 	ownerID, err := uuid.FromBytes(req.WorkspaceOwnerId)
 	if err != nil {
 		return xerrors.Errorf("parse workspace owner ID: %w", err)
+	}
+
+	// Tell the connection's authorizer before the first update can reach
+	// the client, so tunnels added for the agents in the updates are known
+	// to come from a workspace updates subscriber.
+	if streamID, ok := ctx.Value(streamIDContextKey{}).(StreamID); ok {
+		if observer, ok := streamID.Auth.(WorkspaceUpdatesObserver); ok {
+			observer.ObserveWorkspaceUpdates()
+		}
 	}
 
 	sub, err := s.WorkspaceUpdatesProvider.Subscribe(ctx, ownerID)
