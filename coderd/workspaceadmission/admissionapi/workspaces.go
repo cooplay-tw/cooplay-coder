@@ -27,9 +27,16 @@ func (s *Server) listWorkspaces(rw http.ResponseWriter, r *http.Request) {
 		s.writeErr(ctx, rw, xerrors.Errorf("list workspaces: %w", err))
 		return
 	}
+	agents, err := s.workspaceAgents(ctx, uuid.Nil)
+	if err != nil {
+		s.writeErr(ctx, rw, err)
+		return
+	}
 	resp := ListWorkspacesResponse{Workspaces: make([]Workspace, 0, len(rows))}
 	for _, row := range rows {
-		resp.Workspaces = append(resp.Workspaces, convertWorkspace(row))
+		w := convertWorkspace(row)
+		w.Agents = agents[row.ID]
+		resp.Workspaces = append(resp.Workspaces, w)
 	}
 	httpapi.Write(ctx, rw, http.StatusOK, resp)
 }
@@ -50,7 +57,31 @@ func (s *Server) showWorkspace(rw http.ResponseWriter, r *http.Request) {
 		writeError(ctx, rw, http.StatusNotFound, CodeNotFound, "Workspace of a managed template not found.", "")
 		return
 	}
-	httpapi.Write(ctx, rw, http.StatusOK, convertWorkspace(rows[0]))
+	agents, err := s.workspaceAgents(ctx, workspaceID)
+	if err != nil {
+		s.writeErr(ctx, rw, err)
+		return
+	}
+	w := convertWorkspace(rows[0])
+	w.Agents = agents[workspaceID]
+	httpapi.Write(ctx, rw, http.StatusOK, w)
+}
+
+// workspaceAgents reads the top-level agents of the latest builds of
+// managed workspaces, keyed by workspace. A zero workspaceID reads every
+// managed workspace. It reads the database only and never dials an agent,
+// so asking about a sleeping workspace never wakes it.
+func (s *Server) workspaceAgents(ctx context.Context, workspaceID uuid.UUID) (map[uuid.UUID][]WorkspaceAgent, error) {
+	rows, err := s.db.GetWorkspaceAdmissionWorkspaceAgents(ctx, workspaceID)
+	if err != nil {
+		return nil, xerrors.Errorf("get workspace agents: %w", err)
+	}
+	now := s.clock.Now()
+	agents := make(map[uuid.UUID][]WorkspaceAgent)
+	for _, row := range rows {
+		agents[row.WorkspaceID] = append(agents[row.WorkspaceID], convertWorkspaceAgent(row.WorkspaceAgent, now, s.agentInactiveTimeout))
+	}
+	return agents, nil
 }
 
 // loadBuildJob loads a workspace build, its job and its admission, if any.

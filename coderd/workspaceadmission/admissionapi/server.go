@@ -39,6 +39,8 @@ const (
 	maxBodyBytes = 1 << 20
 	// tokenHashPrefix prefixes the hex SHA-256 digest in the token hash file.
 	tokenHashPrefix = "sha256:"
+	// DefaultAgentInactiveDisconnectTimeout matches the coderd default.
+	DefaultAgentInactiveDisconnectTimeout = 30 * time.Second
 )
 
 // Options configures the admission API server.
@@ -56,6 +58,10 @@ type Options struct {
 	// TokenHashFile contains "sha256:<hex>" of the service bearer token.
 	TokenHashFile string
 	Clock         quartz.Clock
+	// AgentInactiveDisconnectTimeout decides when an agent that stopped
+	// reporting its connection counts as disconnected, as in the Coder
+	// API. Zero uses DefaultAgentInactiveDisconnectTimeout.
+	AgentInactiveDisconnectTimeout time.Duration
 }
 
 // Server serves the admission API.
@@ -70,6 +76,9 @@ type Server struct {
 	buildMetrics      *wsbuilder.Metrics
 	tokenHashFile     string
 	clock             quartz.Clock
+	// agentInactiveTimeout decides when an agent that stopped reporting
+	// counts as disconnected.
+	agentInactiveTimeout time.Duration
 }
 
 // New validates the options and returns a server. It fails when the token
@@ -91,17 +100,22 @@ func New(opts Options) (*Server, error) {
 	if clock == nil {
 		clock = quartz.NewReal()
 	}
+	agentInactiveTimeout := opts.AgentInactiveDisconnectTimeout
+	if agentInactiveTimeout <= 0 {
+		agentInactiveTimeout = DefaultAgentInactiveDisconnectTimeout
+	}
 	return &Server{
-		logger:            opts.Logger,
-		db:                opts.Database,
-		pubsub:            opts.Pubsub,
-		fileCache:         opts.FileCache,
-		buildUsageChecker: opts.BuildUsageChecker,
-		experiments:       opts.Experiments,
-		deploymentValues:  opts.DeploymentValues,
-		buildMetrics:      opts.BuildMetrics,
-		tokenHashFile:     opts.TokenHashFile,
-		clock:             clock,
+		logger:               opts.Logger,
+		db:                   opts.Database,
+		pubsub:               opts.Pubsub,
+		fileCache:            opts.FileCache,
+		buildUsageChecker:    opts.BuildUsageChecker,
+		experiments:          opts.Experiments,
+		deploymentValues:     opts.DeploymentValues,
+		buildMetrics:         opts.BuildMetrics,
+		tokenHashFile:        opts.TokenHashFile,
+		clock:                clock,
+		agentInactiveTimeout: agentInactiveTimeout,
 	}, nil
 }
 

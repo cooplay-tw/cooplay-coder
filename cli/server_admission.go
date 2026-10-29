@@ -41,16 +41,17 @@ func serveWorkspaceAdmission(ctx context.Context, logger slog.Logger, inv *serpe
 		return func() {}, nil
 	}
 	server, err := admissionapi.New(admissionapi.Options{
-		Logger:            logger,
-		Database:          api.Database,
-		Pubsub:            api.Pubsub,
-		FileCache:         api.FileCache,
-		BuildUsageChecker: api.BuildUsageChecker,
-		Experiments:       api.Experiments,
-		DeploymentValues:  vals,
-		BuildMetrics:      api.WorkspaceBuilderMetrics,
-		TokenHashFile:     vals.WorkspaceAdmission.TokenHashFile.String(),
-		Clock:             nil,
+		Logger:                         logger,
+		Database:                       api.Database,
+		Pubsub:                         api.Pubsub,
+		FileCache:                      api.FileCache,
+		BuildUsageChecker:              api.BuildUsageChecker,
+		Experiments:                    api.Experiments,
+		DeploymentValues:               vals,
+		BuildMetrics:                   api.WorkspaceBuilderMetrics,
+		TokenHashFile:                  vals.WorkspaceAdmission.TokenHashFile.String(),
+		Clock:                          nil,
+		AgentInactiveDisconnectTimeout: api.AgentInactiveDisconnectTimeout,
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("create workspace admission api: %w", err)

@@ -238,6 +238,26 @@ type Workspace struct {
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 	LatestBuild    BuildJob  `json:"latest_build"`
+	// Agents are the top-level agents of the latest build with their
+	// connection state as recorded in the database. The admission
+	// service never dials agents. Omitted when the latest build has
+	// none, for example after a STOP.
+	Agents []WorkspaceAgent `json:"agents,omitempty"`
+}
+
+// WorkspaceAgent is the connection state of a workspace agent, computed
+// from its database row the way the Coder API computes it.
+type WorkspaceAgent struct {
+	ID uuid.UUID `json:"id"`
+	// Status is connected, connecting, disconnected or timeout.
+	Status string `json:"status"`
+	// LastConnectedAt is the latest time the agent reported its
+	// connection to coderd.
+	LastConnectedAt *time.Time `json:"last_connected_at,omitempty"`
+	// DisconnectedAt is when the agent disconnected. For an agent that
+	// stopped reporting without disconnecting, such as one in a paused
+	// microVM, it is LastConnectedAt once the inactivity timeout passed.
+	DisconnectedAt *time.Time `json:"disconnected_at,omitempty"`
 }
 
 // ListWorkspacesResponse is the body of GET /v1/workspaces.
@@ -538,6 +558,16 @@ func convertWorkspace(row database.GetWorkspaceAdmissionWorkspacesRow) Workspace
 		w.LatestBuild.AdmissionStatus = string(row.LatestAdmissionStatus.WorkspaceAdmissionStatus)
 	}
 	return w
+}
+
+func convertWorkspaceAgent(agent database.WorkspaceAgent, now time.Time, inactiveTimeout time.Duration) WorkspaceAgent {
+	status := agent.Status(now, inactiveTimeout)
+	return WorkspaceAgent{
+		ID:              agent.ID,
+		Status:          string(status.Status),
+		LastConnectedAt: status.LastConnectedAt,
+		DisconnectedAt:  status.DisconnectedAt,
+	}
 }
 
 func convertBuildJob(build database.WorkspaceBuild, job database.ProvisionerJob, admission *database.WorkspaceBuildAdmission) BuildJob {

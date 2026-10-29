@@ -49,6 +49,9 @@ type apiEnv struct {
 	unmanaged codersdk.Template
 	url       string
 	hashFile  string
+	// agentInactiveTimeout is the agent inactivity timeout of the
+	// server.
+	agentInactiveTimeout time.Duration
 }
 
 func writeTokenHash(t *testing.T, token string) string {
@@ -90,32 +93,34 @@ func newAPIEnv(t *testing.T, clock quartz.Clock) apiEnv {
 	hashFile := writeTokenHash(t, testToken)
 	server, err := admissionapi.New(admissionapi.Options{
 		// Tests break the token hash file on purpose, which logs errors.
-		Logger:            slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}),
-		Database:          api.Database,
-		Pubsub:            api.Pubsub,
-		FileCache:         api.FileCache,
-		BuildUsageChecker: api.BuildUsageChecker,
-		Experiments:       api.Experiments,
-		DeploymentValues:  api.DeploymentValues,
-		TokenHashFile:     hashFile,
-		Clock:             clock,
+		Logger:                         slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}),
+		Database:                       api.Database,
+		Pubsub:                         api.Pubsub,
+		FileCache:                      api.FileCache,
+		BuildUsageChecker:              api.BuildUsageChecker,
+		Experiments:                    api.Experiments,
+		DeploymentValues:               api.DeploymentValues,
+		TokenHashFile:                  hashFile,
+		Clock:                          clock,
+		AgentInactiveDisconnectTimeout: api.AgentInactiveDisconnectTimeout,
 	})
 	require.NoError(t, err)
 	srv := httptest.NewServer(server.Handler())
 	t.Cleanup(srv.Close)
 
 	return apiEnv{
-		db:        db,
-		ps:        ps,
-		owner:     owner,
-		orgID:     first.OrganizationID,
-		ownerID:   first.UserID,
-		member:    member,
-		memberID:  memberUser.ID,
-		template:  template,
-		unmanaged: unmanaged,
-		url:       srv.URL,
-		hashFile:  hashFile,
+		db:                   db,
+		ps:                   ps,
+		owner:                owner,
+		orgID:                first.OrganizationID,
+		ownerID:              first.UserID,
+		member:               member,
+		memberID:             memberUser.ID,
+		template:             template,
+		unmanaged:            unmanaged,
+		url:                  srv.URL,
+		hashFile:             hashFile,
+		agentInactiveTimeout: api.AgentInactiveDisconnectTimeout,
 	}
 }
 
