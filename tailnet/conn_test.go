@@ -2,6 +2,7 @@ package tailnet_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/netip"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
+	"tailscale.com/derp"
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/coder/v2/tailnet"
@@ -529,4 +531,64 @@ func TestSlogRemoteAddr(t *testing.T) {
 	logger := testutil.Logger(t)
 	var a net.Addr
 	logger.Info(context.Background(), "this should not segfault", slog.F("addr", a))
+}
+
+// derpAccepts returns how many client connections the DERP server accepted.
+func derpAccepts(t *testing.T, s *derp.Server) int64 {
+	t.Helper()
+	var m map[string]any
+	require.NoError(t, json.Unmarshal([]byte(s.ExpVar().String()), &m))
+	v, ok := m["accepts"].(float64)
+	require.True(t, ok, "accepts metric missing")
+	return int64(v)
+}
+
+// TestConn_Wake verifies that Wake closes and redials the DERP connection and
+// that peers stay reachable afterwards.
+func TestConn_Wake(t *testing.T) {
+	t.Parallel()
+	logger := testutil.Logger(t)
+	ctx := testutil.Context(t, testutil.WaitLong)
+	derpMap, derpServer := tailnettest.RunDERPAndSTUN(t)
+	w1IP := tailnet.TailscaleServicePrefix.RandomAddr()
+	w1, err := tailnet.NewConn(&tailnet.Options{
+		Addresses:      []netip.Prefix{netip.PrefixFrom(w1IP, 128)},
+		Logger:         logger.Named("w1"),
+		DERPMap:        derpMap,
+		BlockEndpoints: true,
+	})
+	require.NoError(t, err)
+	w2, err := tailnet.NewConn(&tailnet.Options{
+		Addresses:      []netip.Prefix{tailnet.TailscaleServicePrefix.RandomPrefix()},
+		Logger:         logger.Named("w2"),
+		DERPMap:        derpMap,
+		BlockEndpoints: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = w1.Close()
+		_ = w2.Close()
+	})
+	stitch(t, w2, w1)
+	stitch(t, w1, w2)
+	require.True(t, w2.AwaitReachable(ctx, w1IP))
+
+	// Both conns hold one home DERP connection; Wake must replace it.
+	before := derpAccepts(t, derpServer)
+	w1.Wake(ctx)
+	require.Eventually(t, func() bool {
+		return derpAccepts(t, derpServer) > before
+	}, testutil.WaitShort, testutil.IntervalFast, "w1.Wake did not redial DERP")
+	before = derpAccepts(t, derpServer)
+	w2.Wake(ctx)
+	require.Eventually(t, func() bool {
+		return derpAccepts(t, derpServer) > before
+	}, testutil.WaitShort, testutil.IntervalFast, "w2.Wake did not redial DERP")
+
+	require.Eventually(t, func() bool {
+		pingCtx, cancel := context.WithTimeout(ctx, testutil.IntervalSlow)
+		defer cancel()
+		_, _, _, err := w2.Ping(pingCtx, w1IP)
+		return err == nil
+	}, testutil.WaitMedium, testutil.IntervalFast)
 }

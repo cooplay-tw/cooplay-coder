@@ -32,7 +32,13 @@ import (
 	"github.com/coder/quartz"
 )
 
-const lostTimeout = 15 * time.Minute
+// DefaultLostTimeout is how long a peer that the coordinator reports as LOST
+// is kept in the netmap before being removed, measured from the last
+// WireGuard handshake. Cooplay raised it from upstream's 15 minutes to 24
+// hours so that an agent workspace that sleeps (VM snapshot, agent frozen)
+// stays reachable by its clients after it wakes up. Override it with
+// Options.LostTimeout.
+const DefaultLostTimeout = 24 * time.Hour
 
 // CoderDNSSuffix is the default DNS suffix that we append to Coder DNS
 // records.
@@ -82,6 +88,9 @@ type configMaps struct {
 	logger         slog.Logger
 	blockEndpoints bool
 	matchDomain    dnsname.FQDN
+	// lostTimeout is how long a LOST peer is kept after its last handshake.
+	// Set before any peers are added; read under c.L.
+	lostTimeout time.Duration
 
 	// for testing
 	clock quartz.Clock
@@ -136,6 +145,7 @@ func newConfigMaps(
 		},
 		peers:       make(map[uuid.UUID]*peerLifecycle),
 		matchDomain: matchDomain,
+		lostTimeout: DefaultLostTimeout,
 		clock:       quartz.NewReal(),
 	}
 	go c.configLoop()
@@ -200,6 +210,17 @@ func (c *configMaps) configLoop() {
 		}
 		c.L.Lock()
 	}
+}
+
+// setLostTimeout overrides how long LOST peers are kept. Zero or negative
+// values keep the current value.
+func (c *configMaps) setLostTimeout(d time.Duration) {
+	if d <= 0 {
+		return
+	}
+	c.L.Lock()
+	defer c.L.Unlock()
+	c.lostTimeout = d
 }
 
 // close closes the configMaps and stops it configuring the engine
@@ -592,7 +613,7 @@ func (c *configMaps) peerLostTimeout(id uuid.UUID) {
 		return
 	}
 	since := c.clock.Since(lc.lastHandshake)
-	if since >= lostTimeout {
+	if since >= c.lostTimeout {
 		logger.Info(
 			context.Background(), "removing lost peer")
 		delete(c.peers, id)
@@ -655,6 +676,21 @@ func (c *configMaps) fillPeerDiagnostics(d *PeerDiagnostics, peerID uuid.UUID) {
 		return
 	}
 	d.LastWireguardHandshake = ps.LastHandshake
+}
+
+// peerAddrs returns one tailnet address per known peer that has a node, used
+// to send traffic that forces fresh WireGuard handshakes.
+func (c *configMaps) peerAddrs() []netip.Addr {
+	c.L.Lock()
+	defer c.L.Unlock()
+	out := make([]netip.Addr, 0, len(c.peers))
+	for _, lc := range c.peers {
+		if lc.node == nil || len(lc.node.Addresses) == 0 {
+			continue
+		}
+		out = append(out, lc.node.Addresses[0].Addr())
+	}
+	return out
 }
 
 func (c *configMaps) knownPeerIDs() []uuid.UUID {
@@ -732,7 +768,7 @@ func (l *peerLifecycle) setLostTimer(c *configMaps) {
 	if l.lostTimer != nil {
 		l.lostTimer.Stop()
 	}
-	ttl := lostTimeout - c.clock.Since(l.lastHandshake)
+	ttl := c.lostTimeout - c.clock.Since(l.lastHandshake)
 	if ttl <= 0 {
 		ttl = time.Nanosecond
 	}

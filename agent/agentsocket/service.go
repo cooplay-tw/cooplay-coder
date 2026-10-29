@@ -22,7 +22,21 @@ var (
 	ErrAgentAPINotConnected       = xerrors.New("agent not connected to coderd")
 	ErrContextManagerNotAvailable = xerrors.New("context manager not available")
 	ErrContextSourceNotFound      = xerrors.New("context source not found")
+	ErrSleepWakeHooksNotAvailable = xerrors.New("sleep/wake hooks not available")
 )
+
+// SleepWakeHooks is implemented by the agent to support suspending the
+// workspace host (Cooplay agent workspaces: VM snapshot/restore) while the
+// workspace build stays running. It is an interface so tests can supply a
+// fake.
+type SleepWakeHooks interface {
+	// PrepareSleep makes subsequent connection teardowns skip the graceful
+	// coordinator Disconnect. It is cleared by Wake.
+	PrepareSleep(ctx context.Context) error
+	// Wake drops the current coderd RPC and DERP connections, rebinds
+	// tailnet, forces WireGuard handshakes and reconnects immediately.
+	Wake(ctx context.Context) error
+}
 
 // ContextManager is the subset of *agentcontext.Manager the socket
 // service needs to serve workspace-context source CRUD. It is an
@@ -40,6 +54,7 @@ type ContextManager interface {
 type DRPCAgentSocketService struct {
 	unitManager    *unit.Manager
 	contextManager ContextManager
+	sleepWakeHooks SleepWakeHooks
 	logger         slog.Logger
 
 	mu       sync.Mutex
@@ -65,6 +80,28 @@ func (s *DRPCAgentSocketService) ClearAgentAPI() {
 // Ping responds to a ping request to check if the service is alive.
 func (*DRPCAgentSocketService) Ping(_ context.Context, _ *proto.PingRequest) (*proto.PingResponse, error) {
 	return &proto.PingResponse{}, nil
+}
+
+// Wake forwards to the agent's Wake hook.
+func (s *DRPCAgentSocketService) Wake(ctx context.Context, _ *proto.WakeRequest) (*proto.WakeResponse, error) {
+	if s.sleepWakeHooks == nil {
+		return nil, xerrors.Errorf("Wake: %w", ErrSleepWakeHooksNotAvailable)
+	}
+	if err := s.sleepWakeHooks.Wake(ctx); err != nil {
+		return nil, xerrors.Errorf("Wake: %w", err)
+	}
+	return &proto.WakeResponse{}, nil
+}
+
+// PrepareSleep forwards to the agent's PrepareSleep hook.
+func (s *DRPCAgentSocketService) PrepareSleep(ctx context.Context, _ *proto.PrepareSleepRequest) (*proto.PrepareSleepResponse, error) {
+	if s.sleepWakeHooks == nil {
+		return nil, xerrors.Errorf("PrepareSleep: %w", ErrSleepWakeHooksNotAvailable)
+	}
+	if err := s.sleepWakeHooks.PrepareSleep(ctx); err != nil {
+		return nil, xerrors.Errorf("PrepareSleep: %w", err)
+	}
+	return &proto.PrepareSleepResponse{}, nil
 }
 
 // SyncStart starts a unit in the dependency graph.

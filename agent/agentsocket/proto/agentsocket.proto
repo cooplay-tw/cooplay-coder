@@ -144,6 +144,17 @@ message ResyncContextResponse {
   ContextSnapshot snapshot = 1;
 }
 
+// WakeRequest asks the agent to recover its connections after the host was
+// suspended (Cooplay agent workspaces: VM snapshot/restore).
+message WakeRequest {}
+
+message WakeResponse {}
+
+// PrepareSleepRequest tells the agent the host is about to be suspended.
+message PrepareSleepRequest {}
+
+message PrepareSleepResponse {}
+
 // AgentSocket provides direct access to the agent over local IPC.
 service AgentSocket {
   // Ping the agent to check if it is alive.
@@ -174,4 +185,12 @@ service AgentSocket {
   rpc GetContextSnapshot(ContextSnapshotRequest) returns (ContextSnapshotResponse);
   // Force a re-walk and synchronous push, returning the resulting snapshot (barrier).
   rpc ResyncContext(ResyncContextRequest) returns (ResyncContextResponse);
+  // Wake drops the current coderd RPC and DERP connections without a graceful
+  // coordinator disconnect, rebinds tailnet, forces WireGuard handshakes and
+  // reconnects immediately. It also clears a previous PrepareSleep.
+  rpc Wake(WakeRequest) returns (WakeResponse);
+  // PrepareSleep makes the agent skip the graceful coordinator Disconnect when
+  // its connections are torn down, so peers see it as LOST (and keep it)
+  // instead of DISCONNECTED. Cleared by Wake.
+  rpc PrepareSleep(PrepareSleepRequest) returns (PrepareSleepResponse);
 }

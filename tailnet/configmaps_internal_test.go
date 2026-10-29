@@ -613,7 +613,7 @@ func TestConfigMaps_updatePeers_lost(t *testing.T) {
 	lh := start.Add(time.Minute)
 	s3 := expectStatusWithHandshake(ctx, t, fEng, p1Node.Key, lh)
 	// 5 seconds have already elapsed from above
-	mClock.Advance(lostTimeout - 5*time.Second).MustWait(ctx)
+	mClock.Advance(DefaultLostTimeout - 5*time.Second).MustWait(ctx)
 	_ = testutil.TryReceive(ctx, t, s3)
 	select {
 	case <-fEng.setNetworkMap:
@@ -710,7 +710,7 @@ func TestConfigMaps_updatePeers_lost_and_found(t *testing.T) {
 
 	// When we advance the clock, nothing happens because the timeout was
 	// canceled
-	mClock.Advance(lostTimeout).MustWait(ctx)
+	mClock.Advance(DefaultLostTimeout).MustWait(ctx)
 	select {
 	case <-fEng.setNetworkMap:
 		t.Fatal("should not reprogram")
@@ -796,7 +796,7 @@ func TestConfigMaps_setAllPeersLost(t *testing.T) {
 
 	// Finally, advance the clock until after the timeout
 	s3 := expectStatusWithHandshake(ctx, t, fEng, p1Node.Key, start)
-	mClock.Advance(lostTimeout - d - 5*time.Second).MustWait(ctx)
+	mClock.Advance(DefaultLostTimeout - d - 5*time.Second).MustWait(ctx)
 	_ = testutil.TryReceive(ctx, t, s3)
 
 	nm = testutil.TryReceive(ctx, t, fEng.setNetworkMap)
@@ -1340,4 +1340,109 @@ func (f fakeEngineConfigurable) SetDERPMap(d *tailcfg.DERPMap) {
 
 func (f fakeEngineConfigurable) SetFilter(flt *filter.Filter) {
 	f.filter <- flt
+}
+
+// TestConfigMaps_updatePeers_lost_configuredTimeout verifies that a LOST peer
+// is kept for the configured lost timeout (not the default) and removed once
+// it expires.
+func TestConfigMaps_updatePeers_lost_configuredTimeout(t *testing.T) {
+	t.Parallel()
+	ctx := testutil.Context(t, testutil.WaitShort)
+	logger := testutil.Logger(t)
+	fEng := newFakeEngineConfigurable()
+	nodePrivateKey := key.NewNode()
+	nodeID := tailcfg.NodeID(5)
+	discoKey := key.NewDisco()
+	uut := newConfigMaps(logger, fEng, nodeID, nodePrivateKey, discoKey.Public(), CoderDNSSuffixFQDN)
+	defer uut.close()
+	require.Equal(t, DefaultLostTimeout, uut.lostTimeout)
+	const configured = 2 * time.Hour
+	uut.setLostTimeout(configured)
+	// Non-positive values keep the current value.
+	uut.setLostTimeout(0)
+	require.Equal(t, configured, uut.lostTimeout)
+
+	mClock := quartz.NewMock(t)
+	start := mClock.Now()
+	uut.clock = mClock
+
+	p1ID := uuid.UUID{1}
+	p1Node := newTestNode(1)
+	p1n, err := NodeToProto(p1Node)
+	require.NoError(t, err)
+
+	s1 := expectStatusWithHandshake(ctx, t, fEng, p1Node.Key, start)
+	updates := []*proto.CoordinateResponse_PeerUpdate{
+		{
+			Id:   p1ID[:],
+			Kind: proto.CoordinateResponse_PeerUpdate_NODE,
+			Node: p1n,
+		},
+	}
+	uut.updatePeers(updates)
+	nm := testutil.TryReceive(ctx, t, fEng.setNetworkMap)
+	_ = testutil.TryReceive(ctx, t, fEng.reconfig)
+	require.Len(t, nm.Peers, 1)
+	_ = testutil.TryReceive(ctx, t, s1)
+
+	s2 := expectStatusWithHandshake(ctx, t, fEng, p1Node.Key, start)
+	updates[0].Kind = proto.CoordinateResponse_PeerUpdate_LOST
+	updates[0].Node = nil
+	uut.updatePeers(updates)
+	_ = testutil.TryReceive(ctx, t, s2)
+
+	// Well past upstream's old 15 minute timeout, but before the configured
+	// one: the timer has not fired, so nothing is reprogrammed.
+	mClock.Advance(time.Hour).MustWait(ctx)
+	select {
+	case <-fEng.setNetworkMap:
+		t.Fatal("should not reprogram before the configured lost timeout")
+	default:
+	}
+
+	// At the configured timeout the peer is removed.
+	s3 := expectStatusWithHandshake(ctx, t, fEng, p1Node.Key, start)
+	mClock.Advance(configured - time.Hour).MustWait(ctx)
+	_ = testutil.TryReceive(ctx, t, s3)
+	nm = testutil.TryReceive(ctx, t, fEng.setNetworkMap)
+	r := testutil.TryReceive(ctx, t, fEng.reconfig)
+	require.Len(t, nm.Peers, 0)
+	require.Len(t, r.wg.Peers, 0)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		uut.close()
+	}()
+	_ = testutil.TryReceive(ctx, t, done)
+}
+
+// TestNewConn_LostTimeoutOption verifies that Options.LostTimeout reaches
+// configMaps and that zero keeps DefaultLostTimeout.
+func TestNewConn_LostTimeoutOption(t *testing.T) {
+	t.Parallel()
+	logger := testutil.Logger(t)
+	for _, tc := range []struct {
+		name string
+		opt  time.Duration
+		want time.Duration
+	}{
+		{name: "Default", opt: 0, want: DefaultLostTimeout},
+		{name: "Configured", opt: 3 * time.Minute, want: 3 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			conn, err := NewConn(&Options{
+				Addresses:   []netip.Prefix{TailscaleServicePrefix.RandomPrefix()},
+				Logger:      logger.Named(tc.name),
+				LostTimeout: tc.opt,
+			})
+			require.NoError(t, err)
+			defer conn.Close()
+			conn.configMaps.L.Lock()
+			got := conn.configMaps.lostTimeout
+			conn.configMaps.L.Unlock()
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

@@ -64,7 +64,6 @@ import (
 	"github.com/coder/coder/v2/tailnet"
 	tailnetproto "github.com/coder/coder/v2/tailnet/proto"
 	"github.com/coder/quartz"
-	"github.com/coder/retry"
 )
 
 const (
@@ -124,6 +123,10 @@ type Options struct {
 	// StatsReportInterval is the interval for the connstats callback
 	// installed at statsReporter creation.
 	StatsReportInterval time.Duration
+	// ReconnectStableThreshold is how long a coderd connection must stay up
+	// before the reconnect backoff is reset to its initial delay. Zero means
+	// DefaultReconnectStableThreshold. Only tests should set this.
+	ReconnectStableThreshold time.Duration
 }
 
 type Client interface {
@@ -206,6 +209,10 @@ func New(options Options) Agent {
 		options.StatsReportInterval = DefaultStatsReportInterval
 	}
 
+	if options.ReconnectStableThreshold == 0 {
+		options.ReconnectStableThreshold = DefaultReconnectStableThreshold
+	}
+
 	if options.ListeningPortsGetter == nil {
 		options.ListeningPortsGetter = &osListeningPortsGetter{
 			cacheDuration: 1 * time.Second,
@@ -261,6 +268,9 @@ func New(options Options) Agent {
 		agentFirewallLogProxySocketPath: options.AgentFirewallLogProxySocketPath,
 		contextConfig:                   options.ContextConfig,
 		derpTLSConfig:                   options.DERPTLSConfig,
+
+		reconnectStableThreshold: options.ReconnectStableThreshold,
+		wakeCh:                   make(chan struct{}, 1),
 	}
 	// Initially, we have a closed channel, reflecting the fact that we are not initially connected.
 	// Each time we connect we replace the channel (while holding the closeMutex) with a new one
@@ -305,6 +315,24 @@ type agent struct {
 	network       *tailnet.Conn
 	statsReporter *statsReporter
 	// end fields protected by closeMutex
+
+	// Sleep/wake support (Cooplay agent workspaces). See sleepwake.go.
+	reconnectStableThreshold time.Duration
+	// wakeCh is signaled (non-blocking, buffered 1) by Wake so runLoop skips
+	// its backoff wait and redials immediately.
+	wakeCh chan struct{}
+	// rpcConnMu protects the following.
+	rpcConnMu sync.Mutex
+	// rpcConn is the handle of the current coderd connection, nil when not
+	// connected.
+	rpcConn *rpcConnHandle
+	// attemptCancel cancels the in-progress run attempt (dial included); nil
+	// between attempts.
+	attemptCancel context.CancelFunc
+	// sleepPrepared is set by PrepareSleep and cleared by Wake; new
+	// connections inherit it.
+	sleepPrepared bool
+	// end fields protected by rpcConnMu
 
 	environmentVariables map[string]string
 
@@ -565,6 +593,7 @@ func (a *agent) initSocketServer() {
 		a.logger.Named("socket"),
 		agentsocket.WithPath(a.socketPath),
 		agentsocket.WithContextManager(a.contextManager),
+		agentsocket.WithSleepWakeHooks(a),
 	)
 	if err != nil {
 		a.logger.Error(a.hardCtx, "failed to create socket server", slog.Error(err), slog.F("path", a.socketPath))
@@ -601,9 +630,12 @@ func (a *agent) runLoop() {
 	// messages.
 	ctx := a.hardCtx
 	defer a.logger.Info(ctx, "agent main loop exited")
-	for retrier := retry.New(100*time.Millisecond, 10*time.Second); retrier.Wait(ctx); {
+	backoff := newReconnectBackoff(a.clock, a.reconnectStableThreshold, 100*time.Millisecond, 10*time.Second)
+	for backoff.wait(ctx, a.wakeCh) {
 		a.logger.Info(ctx, "connecting to coderd")
-		err := a.run()
+		var connectedAt time.Time
+		err := a.run(func(t time.Time) { connectedAt = t })
+		backoff.connectionEnded(connectedAt)
 		if err == nil {
 			continue
 		}
@@ -1163,11 +1195,20 @@ func (a *agent) fetchServiceBannerLoop(ctx context.Context, aAPI proto.DRPCAgent
 	}
 }
 
-func (a *agent) run() (retErr error) {
+// run dials coderd and runs every API routine until one of them fails.
+// onConnected is called with the time the RPC connection was established.
+func (a *agent) run(onConnected func(time.Time)) (retErr error) {
 	// This allows the agent to refresh its token if necessary.
 	// For instance identity this is required, since the instance
 	// may not have re-provisioned, but a new agent ID was created.
-	err := a.client.RefreshToken(a.hardCtx)
+	// Each attempt dials under its own context so Wake can abort a dial that
+	// hangs on a connection that died while the VM was suspended.
+	attemptCtx, attemptCancel := context.WithCancel(a.hardCtx)
+	defer attemptCancel()
+	a.startRunAttempt(attemptCancel)
+	defer a.endRunAttempt()
+
+	err := a.client.RefreshToken(attemptCtx)
 	if err != nil {
 		return xerrors.Errorf("refresh token: %w", err)
 	}
@@ -1175,7 +1216,7 @@ func (a *agent) run() (retErr error) {
 	// ConnectRPC returns the dRPC connection we use for the Agent and Tailnet v2+ APIs.
 	// We pass role "agent" to enable connection monitoring on the server, which tracks
 	// the agent's connectivity state (first_connected_at, last_connected_at, disconnected_at).
-	aAPI, tAPI, err := a.client.ConnectRPC210WithRole(a.hardCtx, "agent")
+	aAPI, tAPI, err := a.client.ConnectRPC210WithRole(attemptCtx, "agent")
 	if err != nil {
 		return err
 	}
@@ -1185,6 +1226,14 @@ func (a *agent) run() (retErr error) {
 			a.logger.Debug(a.hardCtx, "error closing drpc connection", slog.Error(cErr))
 		}
 	}()
+	if onConnected != nil {
+		onConnected(a.clock.Now())
+	}
+	connHandle, err := a.registerRPCConn(attemptCtx, aAPI.DRPCConn())
+	if err != nil {
+		return err
+	}
+	defer a.unregisterRPCConn(connHandle)
 
 	// The socket server accepts requests from processes running inside the workspace and forwards
 	// some of the requests to Coderd over the DRPC connection.
@@ -1326,7 +1375,7 @@ func (a *agent) run() (retErr error) {
 			if err := networkOK.wait(ctx); err != nil {
 				return xerrors.Errorf("no network: %w", err)
 			}
-			return a.runCoordinator(ctx, tAPI, a.network)
+			return a.runCoordinator(ctx, tAPI, a.network, connHandle)
 		},
 	)
 
@@ -2044,7 +2093,12 @@ func classifyCoordinatorRPCExit(ctx context.Context, retErr error) (codersdk.Dis
 
 // runCoordinator runs a coordinator and returns whether a reconnect
 // should occur.
-func (a *agent) runCoordinator(ctx context.Context, tClient tailnetproto.DRPCTailnetClient24, network *tailnet.Conn) (retErr error) {
+//
+// connHandle may be nil. When it is marked to skip the graceful disconnect
+// (PrepareSleep or Wake) and the agent itself is not shutting down, the
+// coordinate stream is closed without sending the Disconnect message so the
+// coordinator reports this agent as LOST rather than DISCONNECTED.
+func (a *agent) runCoordinator(ctx context.Context, tClient tailnetproto.DRPCTailnetClient24, network *tailnet.Conn, connHandle *rpcConnHandle) (retErr error) {
 	// we run the RPC on the hardCtx so that we have a chance to send the disconnect message if we
 	// gracefully shut down.
 	coordinate, err := tClient.Coordinate(a.hardCtx)
@@ -2084,16 +2138,29 @@ func (a *agent) runCoordinator(ctx context.Context, tClient tailnetproto.DRPCTai
 		defer close(errCh)
 		select {
 		case <-ctx.Done():
-			err := coordination.Close(a.hardCtx)
-			if err != nil {
-				a.logger.Warn(ctx, "failed to close remote coordination", slog.Error(err))
-			}
+			a.closeCoordination(ctx, connHandle, coordination, coordinate)
 			return
 		case err := <-coordination.Wait():
 			errCh <- err
 		}
 	}()
 	return <-errCh
+}
+
+// closeCoordination ends the coordination, sending the graceful Disconnect
+// unless connHandle asks to skip it and the agent is not shutting down.
+func (a *agent) closeCoordination(ctx context.Context, connHandle *rpcConnHandle, coordination tailnet.CloserWaiter, coordinate tailnet.CoordinatorClient) {
+	if connHandle != nil && connHandle.skipGracefulDisconnect.Load() && a.gracefulCtx.Err() == nil {
+		a.logger.Info(ctx, "closing coordination without graceful disconnect (sleep/wake)")
+		if err := coordinate.Close(); err != nil {
+			a.logger.Debug(ctx, "error force closing Coordinate client", slog.Error(err))
+		}
+		return
+	}
+	err := coordination.Close(a.hardCtx)
+	if err != nil {
+		a.logger.Warn(ctx, "failed to close remote coordination", slog.Error(err))
+	}
 }
 
 func (a *agent) setCoordDisconnected() chan struct{} {

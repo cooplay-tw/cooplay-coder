@@ -18,6 +18,7 @@ type Option func(*options)
 type options struct {
 	path           string
 	contextManager ContextManager
+	sleepWakeHooks SleepWakeHooks
 }
 
 // WithPath sets the socket path. If not provided or empty, the client will
@@ -36,6 +37,14 @@ func WithPath(path string) Option {
 func WithContextManager(cm ContextManager) Option {
 	return func(opts *options) {
 		opts.contextManager = cm
+	}
+}
+
+// WithSleepWakeHooks supplies the agent hooks the server uses to serve the
+// Wake and PrepareSleep RPCs. Server-only; ignored by the client.
+func WithSleepWakeHooks(h SleepWakeHooks) Option {
+	return func(opts *options) {
+		opts.sleepWakeHooks = h
 	}
 }
 
@@ -76,6 +85,20 @@ func (c *Client) Close() error {
 // Ping sends a ping request to the agent.
 func (c *Client) Ping(ctx context.Context) error {
 	_, err := c.client.Ping(ctx, &proto.PingRequest{})
+	return err
+}
+
+// Wake asks the agent to recover its connections after the host was
+// suspended. See SleepWakeHooks.Wake.
+func (c *Client) Wake(ctx context.Context) error {
+	_, err := c.client.Wake(ctx, &proto.WakeRequest{})
+	return err
+}
+
+// PrepareSleep tells the agent the host is about to be suspended. See
+// SleepWakeHooks.PrepareSleep.
+func (c *Client) PrepareSleep(ctx context.Context) error {
+	_, err := c.client.PrepareSleep(ctx, &proto.PrepareSleepRequest{})
 	return err
 }
 

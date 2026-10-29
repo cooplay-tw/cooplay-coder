@@ -53,6 +53,8 @@ type DRPCAgentSocketClient interface {
 	RemoveContextSource(ctx context.Context, in *RemoveContextSourceRequest) (*RemoveContextSourceResponse, error)
 	GetContextSnapshot(ctx context.Context, in *ContextSnapshotRequest) (*ContextSnapshotResponse, error)
 	ResyncContext(ctx context.Context, in *ResyncContextRequest) (*ResyncContextResponse, error)
+	Wake(ctx context.Context, in *WakeRequest) (*WakeResponse, error)
+	PrepareSleep(ctx context.Context, in *PrepareSleepRequest) (*PrepareSleepResponse, error)
 }
 
 type drpcAgentSocketClient struct {
@@ -191,6 +193,24 @@ func (c *drpcAgentSocketClient) ResyncContext(ctx context.Context, in *ResyncCon
 	return out, nil
 }
 
+func (c *drpcAgentSocketClient) Wake(ctx context.Context, in *WakeRequest) (*WakeResponse, error) {
+	out := new(WakeResponse)
+	err := c.cc.Invoke(ctx, "/coder.agentsocket.v1.AgentSocket/Wake", drpcEncoding_File_agent_agentsocket_proto_agentsocket_proto{}, in, out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *drpcAgentSocketClient) PrepareSleep(ctx context.Context, in *PrepareSleepRequest) (*PrepareSleepResponse, error) {
+	out := new(PrepareSleepResponse)
+	err := c.cc.Invoke(ctx, "/coder.agentsocket.v1.AgentSocket/PrepareSleep", drpcEncoding_File_agent_agentsocket_proto_agentsocket_proto{}, in, out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 type DRPCAgentSocketServer interface {
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
 	SyncStart(context.Context, *SyncStartRequest) (*SyncStartResponse, error)
@@ -206,6 +226,8 @@ type DRPCAgentSocketServer interface {
 	RemoveContextSource(context.Context, *RemoveContextSourceRequest) (*RemoveContextSourceResponse, error)
 	GetContextSnapshot(context.Context, *ContextSnapshotRequest) (*ContextSnapshotResponse, error)
 	ResyncContext(context.Context, *ResyncContextRequest) (*ResyncContextResponse, error)
+	Wake(context.Context, *WakeRequest) (*WakeResponse, error)
+	PrepareSleep(context.Context, *PrepareSleepRequest) (*PrepareSleepResponse, error)
 }
 
 type DRPCAgentSocketUnimplementedServer struct{}
@@ -266,9 +288,17 @@ func (s *DRPCAgentSocketUnimplementedServer) ResyncContext(context.Context, *Res
 	return nil, drpcerr.WithCode(errors.New("Unimplemented"), drpcerr.Unimplemented)
 }
 
+func (s *DRPCAgentSocketUnimplementedServer) Wake(context.Context, *WakeRequest) (*WakeResponse, error) {
+	return nil, drpcerr.WithCode(errors.New("Unimplemented"), drpcerr.Unimplemented)
+}
+
+func (s *DRPCAgentSocketUnimplementedServer) PrepareSleep(context.Context, *PrepareSleepRequest) (*PrepareSleepResponse, error) {
+	return nil, drpcerr.WithCode(errors.New("Unimplemented"), drpcerr.Unimplemented)
+}
+
 type DRPCAgentSocketDescription struct{}
 
-func (DRPCAgentSocketDescription) NumMethods() int { return 14 }
+func (DRPCAgentSocketDescription) NumMethods() int { return 16 }
 
 func (DRPCAgentSocketDescription) Method(n int) (string, drpc.Encoding, drpc.Receiver, interface{}, bool) {
 	switch n {
@@ -398,6 +428,24 @@ func (DRPCAgentSocketDescription) Method(n int) (string, drpc.Encoding, drpc.Rec
 						in1.(*ResyncContextRequest),
 					)
 			}, DRPCAgentSocketServer.ResyncContext, true
+	case 14:
+		return "/coder.agentsocket.v1.AgentSocket/Wake", drpcEncoding_File_agent_agentsocket_proto_agentsocket_proto{},
+			func(srv interface{}, ctx context.Context, in1, in2 interface{}) (drpc.Message, error) {
+				return srv.(DRPCAgentSocketServer).
+					Wake(
+						ctx,
+						in1.(*WakeRequest),
+					)
+			}, DRPCAgentSocketServer.Wake, true
+	case 15:
+		return "/coder.agentsocket.v1.AgentSocket/PrepareSleep", drpcEncoding_File_agent_agentsocket_proto_agentsocket_proto{},
+			func(srv interface{}, ctx context.Context, in1, in2 interface{}) (drpc.Message, error) {
+				return srv.(DRPCAgentSocketServer).
+					PrepareSleep(
+						ctx,
+						in1.(*PrepareSleepRequest),
+					)
+			}, DRPCAgentSocketServer.PrepareSleep, true
 	default:
 		return "", nil, nil, nil, false
 	}
@@ -625,6 +673,38 @@ type drpcAgentSocket_ResyncContextStream struct {
 }
 
 func (x *drpcAgentSocket_ResyncContextStream) SendAndClose(m *ResyncContextResponse) error {
+	if err := x.MsgSend(m, drpcEncoding_File_agent_agentsocket_proto_agentsocket_proto{}); err != nil {
+		return err
+	}
+	return x.CloseSend()
+}
+
+type DRPCAgentSocket_WakeStream interface {
+	drpc.Stream
+	SendAndClose(*WakeResponse) error
+}
+
+type drpcAgentSocket_WakeStream struct {
+	drpc.Stream
+}
+
+func (x *drpcAgentSocket_WakeStream) SendAndClose(m *WakeResponse) error {
+	if err := x.MsgSend(m, drpcEncoding_File_agent_agentsocket_proto_agentsocket_proto{}); err != nil {
+		return err
+	}
+	return x.CloseSend()
+}
+
+type DRPCAgentSocket_PrepareSleepStream interface {
+	drpc.Stream
+	SendAndClose(*PrepareSleepResponse) error
+}
+
+type drpcAgentSocket_PrepareSleepStream struct {
+	drpc.Stream
+}
+
+func (x *drpcAgentSocket_PrepareSleepStream) SendAndClose(m *PrepareSleepResponse) error {
 	if err := x.MsgSend(m, drpcEncoding_File_agent_agentsocket_proto_agentsocket_proto{}); err != nil {
 		return err
 	}

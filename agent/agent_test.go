@@ -4428,3 +4428,86 @@ func assertConnectionReport(t testing.TB, agentClient *agenttest.Client, connect
 		t.Logf("connection report disconnect reason: %s", reports[1].GetConnection().GetReason())
 	}
 }
+
+// TestAgent_WakeReconnectsImmediately verifies that the Wake hook drops the
+// current coderd connection without a graceful coordinator Disconnect and
+// redials right away.
+func TestAgent_WakeReconnectsImmediately(t *testing.T) {
+	t.Parallel()
+	ctx := testutil.Context(t, testutil.WaitLong)
+	logger := testutil.Logger(t)
+	fCoordinator := tailnettest.NewFakeCoordinator()
+
+	agentID := uuid.New()
+	statsCh := make(chan *proto.Stats, 50)
+	derpMap, _ := tailnettest.RunDERPAndSTUN(t)
+	client := agenttest.NewClient(t,
+		logger,
+		agentID,
+		agentsdk.Manifest{
+			DERPMap:   derpMap,
+			Directory: "/test/workspace",
+		},
+		statsCh,
+		fCoordinator,
+	)
+	defer client.Close()
+
+	closer := agent.New(agent.Options{
+		Client: client,
+		Logger: logger.Named("agent"),
+	})
+	defer closer.Close()
+
+	hooks, ok := closer.(interface {
+		PrepareSleep(context.Context) error
+		Wake(context.Context) error
+	})
+	require.True(t, ok, "agent must implement the sleep/wake hooks")
+
+	// recordDisconnects reads every request the agent sends on a coordinate
+	// stream until the server closes it, and reports whether one of them was
+	// a Disconnect.
+	recordDisconnects := func(call *tailnettest.FakeCoordinate) <-chan bool {
+		res := make(chan bool, 1)
+		go func() {
+			sawDisconnect := false
+			defer func() { res <- sawDisconnect }()
+			for {
+				select {
+				case req, ok := <-call.Reqs:
+					if !ok {
+						return
+					}
+					if req.GetDisconnect() != nil {
+						sawDisconnect = true
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+		return res
+	}
+
+	call1 := testutil.RequireReceive(ctx, t, fCoordinator.CoordinateCalls)
+	require.Equal(t, 1, client.GetNumRefreshTokenCalls())
+	call1Disconnect := recordDisconnects(call1)
+
+	// PrepareSleep then Wake: the old stream ends without Disconnect and the
+	// agent redials coderd and the coordinator.
+	require.NoError(t, hooks.PrepareSleep(ctx))
+	require.NoError(t, hooks.Wake(ctx))
+	call2 := testutil.RequireReceive(ctx, t, fCoordinator.CoordinateCalls)
+	require.Equal(t, 2, client.GetNumRefreshTokenCalls())
+	require.False(t, testutil.RequireReceive(ctx, t, call1Disconnect),
+		"agent sent a graceful coordinator Disconnect on wake after PrepareSleep")
+
+	// Wake alone (no PrepareSleep) must also skip the graceful Disconnect.
+	call2Disconnect := recordDisconnects(call2)
+	require.NoError(t, hooks.Wake(ctx))
+	testutil.RequireReceive(ctx, t, fCoordinator.CoordinateCalls)
+	require.Equal(t, 3, client.GetNumRefreshTokenCalls())
+	require.False(t, testutil.RequireReceive(ctx, t, call2Disconnect),
+		"agent sent a graceful coordinator Disconnect on wake")
+}

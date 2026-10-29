@@ -129,6 +129,10 @@ type Options struct {
 	// DNSMatchDomain is the DNS suffix to use as a match domain. Only relevant for TUN connections that configure the
 	// OS DNS resolver.
 	DNSMatchDomain string
+	// LostTimeout is how long a peer reported LOST by the coordinator is kept
+	// (measured from its last handshake) before it is removed. Zero means
+	// DefaultLostTimeout.
+	LostTimeout time.Duration
 }
 
 // TelemetrySink allows tailnet.Conn to send network telemetry to the Coder
@@ -307,6 +311,7 @@ func NewConn(options *Options) (conn *Conn, err error) {
 		cfgMaps.setDERPMap(options.DERPMap)
 	}
 	cfgMaps.setBlockEndpoints(options.BlockEndpoints)
+	cfgMaps.setLostTimeout(options.LostTimeout)
 
 	nodeUp := newNodeUpdater(
 		options.Logger,
@@ -499,6 +504,39 @@ func (c *Conn) MagicsockSetDebugLoggingEnabled(enabled bool) {
 func (c *Conn) Rebind() {
 	c.magicConn.Rebind()
 	c.magicConn.ReSTUN("wake")
+}
+
+// Wake recovers the data plane after the host was suspended (for example a VM
+// snapshot/restore). It closes all DERP connections and reconnects the home
+// DERP (by toggling the magicsock network state; magicsock has no public
+// accessor for the current state, so a host whose link was down is treated
+// as up again, which only costs a failed DERP dial), rebinds the local UDP
+// sockets, re-runs STUN and then sends a TSMP ping to every known peer. The
+// ping starts a new WireGuard handshake only if wireguard-go considers the
+// current keypair missing or expired; keypair age is measured with the
+// monotonic clock, which does not advance while a VM is paused, so a keypair
+// that was fresh at suspend is reused and the handshake is only renewed by
+// wireguard-go's retry timer or by the peer. Forcing a handshake needs a
+// keypair-expiry API that the tailscale fork does not expose yet. The pings
+// run in the background bounded by ctx; Wake itself does not block on them.
+func (c *Conn) Wake(ctx context.Context) {
+	c.logger.Info(ctx, "waking tailnet connection")
+	// SetNetworkUp(false) closes every DERP connection; SetNetworkUp(true)
+	// immediately redials the home DERP region.
+	c.magicConn.SetNetworkUp(false)
+	c.magicConn.SetNetworkUp(true)
+	c.magicConn.Rebind()
+	c.magicConn.ReSTUN("wake")
+	for _, ip := range c.configMaps.peerAddrs() {
+		go func(ip netip.Addr) {
+			pingCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			_, _, _, err := c.pingWithType(pingCtx, ip, tailcfg.PingTSMP)
+			if err != nil {
+				c.logger.Debug(pingCtx, "wake handshake ping failed", slog.F("ip", ip), slog.Error(err))
+			}
+		}(ip)
+	}
 }
 
 func (c *Conn) SetAddresses(ips []netip.Prefix) error {

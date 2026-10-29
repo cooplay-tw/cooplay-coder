@@ -7,7 +7,7 @@ the license.
 
 - Base: Coder tag `v2.37.6`, commit `c57613f858ba063507e4106ec3a7ce683df4d1d2`.
 - Modified by: Cooplay.
-- Dates of modification: 2026-10-25 and 2026-10-26.
+- Dates of modification: 2026-10-25, 2026-10-26 and 2026-10-29.
 
 The modifications only use and change AGPL-licensed code. No code under
 `enterprise/` is used, enabled or modified, and no entitlement checks were
@@ -77,3 +77,55 @@ Modified areas:
   `CODER_TEST_POSTGRES_PORT` selects the port of the shared test Postgres
   server so tests never use an unrelated server on port 5432.
 - Generated API types and documentation that follow from the changes above.
+
+## Agent sleep and wake
+
+Agent workspaces run in a microVM that the platform controller suspends
+(container freeze, VM snapshot) and restores while the Coder workspace build
+stays running. The agent gets two hooks, driven by the in-VM guest daemon over
+the local agent socket, so that a sleeping agent is reported as lost instead
+of disconnected and reconnects immediately after restore.
+
+Modified areas:
+
+- Agent reconnect backoff (`agent/agent.go`, `agent/sleepwake.go`): the
+  `runLoop` retrier (100 ms to 10 s) is reset to its initial delay after a
+  coderd connection stayed up for at least 10 s
+  (`DefaultReconnectStableThreshold`; `Options.ReconnectStableThreshold` for
+  tests), so one long-lived connection that drops does not start at the
+  ceiling.
+- PrepareSleep hook (`agent/sleepwake.go`, `agent/agent.go`): marks the
+  current and any later coderd connection so that, when it is torn down
+  without the agent shutting down, the coordinate stream is closed without
+  the graceful `Disconnect` message. The coordinator then reports the agent
+  as LOST rather than DISCONNECTED and clients keep the peer. PrepareSleep
+  does not tear anything down by itself, and a gracefully shutting down agent
+  still sends `Disconnect`. Wake clears it.
+- Wake hook (`agent/sleepwake.go`, `tailnet/conn.go`): marks the current
+  connection to skip `Disconnect`, closes the coderd RPC connection (each
+  `run` attempt dials under its own context, so Wake also aborts a dial
+  still in progress and a connection dialed before the wake is discarded),
+  and calls the new `tailnet.Conn.Wake`, which closes and redials DERP
+  (magicsock `SetNetworkUp(false)` then `true`), rebinds the UDP sockets,
+  re-runs STUN and sends a TSMP ping to every known peer. `runLoop` then
+  redials immediately with a reset backoff.
+- Known limitation: the TSMP ping does not force a new WireGuard handshake.
+  wireguard-go only rehandshakes on send when the keypair is missing or
+  older than `RejectAfterTime` by the monotonic clock, which does not
+  advance while the VM is paused, so a keypair that was fresh at suspend is
+  reused until wireguard-go's retry timer (about 5 to 15 seconds) or the
+  peer renews it. Forcing it needs a keypair-expiry API in the tailscale
+  fork.
+- Agent socket (`agent/agentsocket`): `Wake` and `PrepareSleep` RPCs in
+  `proto/agentsocket.proto` (regenerated code), served through the
+  `SleepWakeHooks` interface (`WithSleepWakeHooks`) and exposed on the
+  socket client. The agent API version constant is unchanged.
+- CLI (`cli/exp_agent_sleepwake.go`, `cli/root.go`): hidden experimental
+  commands `coder exp agent prepare-sleep` and `coder exp agent wake`, with
+  `--socket-path` / `CODER_AGENT_SOCKET_PATH` like `coder exp sync`.
+- Tailnet lost peer timeout (`tailnet/configmaps.go`, `tailnet/conn.go`):
+  the time a LOST peer is kept after its last handshake is configurable with
+  `tailnet.Options.LostTimeout` (zero means the default), and the default
+  (`tailnet.DefaultLostTimeout`) is raised from 15 minutes to 24 hours. All
+  `tailnet.Conn` users, including coderd's server tailnet and CLI clients,
+  use the new default. No server flag or deployment option was added.
