@@ -334,6 +334,49 @@ type AckIntentResponse struct {
 	Acked bool `json:"acked"`
 }
 
+// Results of an acknowledged keepalive intent.
+const (
+	// KeepaliveResultApplied means the controller kept the workspace awake
+	// until the acknowledged end.
+	KeepaliveResultApplied = "applied"
+	// KeepaliveResultDenied means the controller refused the keepalive.
+	KeepaliveResultDenied = "denied"
+)
+
+// KeepaliveIntent is a request to keep a managed workspace awake, recorded
+// when a user asked for it, for example from the sleep notice on the
+// workspace page. It is pending while AckedAt is null.
+type KeepaliveIntent struct {
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	// RequestedBy is the user ID of the latest request.
+	RequestedBy uuid.UUID `json:"requested_by"`
+	// RequestedAt identifies the latest request. Acknowledgements must echo
+	// it unchanged.
+	RequestedAt time.Time `json:"requested_at"`
+	// ForSeconds is the requested duration. The controller caps it at its
+	// own maximum.
+	ForSeconds int        `json:"for_seconds"`
+	AckedAt    *time.Time `json:"acked_at,omitempty"`
+}
+
+// ListKeepaliveIntentsResponse is the body of GET /v1/keepalive-intents.
+type ListKeepaliveIntentsResponse struct {
+	Intents []KeepaliveIntent `json:"intents"`
+}
+
+// AckKeepaliveIntentRequest is the body of POST
+// /v1/keepalive-intents/{workspace_id}/ack.
+type AckKeepaliveIntentRequest struct {
+	// RequestedAt is the latest request the controller acted on.
+	RequestedAt time.Time `json:"requested_at"`
+	// Until is the keepalive end the controller applied. It is required
+	// when Result is applied and ignored when it is denied, where it may be
+	// absent or the zero time.
+	Until *time.Time `json:"until,omitempty"`
+	// Result is applied or denied.
+	Result string `json:"result"`
+}
+
 func timePtr(t sql.NullTime) *time.Time {
 	if !t.Valid {
 		return nil
@@ -530,4 +573,14 @@ func convertWakeIntent(row database.WorkspaceAdmissionWakeIntent) WakeIntent {
 		i.AckedPowerEpoch = &v
 	}
 	return i
+}
+
+func convertKeepaliveIntent(row database.WorkspaceAdmissionKeepaliveIntent) KeepaliveIntent {
+	return KeepaliveIntent{
+		WorkspaceID: row.WorkspaceID,
+		RequestedBy: row.RequestedBy,
+		RequestedAt: row.RequestedAt,
+		ForSeconds:  int(row.ForSeconds),
+		AckedAt:     timePtr(row.AckedAt),
+	}
 }

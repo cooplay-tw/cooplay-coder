@@ -1903,6 +1903,7 @@ func New(options *Options) *API {
 					r.Delete("/", api.deleteWorkspaceACL)
 				})
 				r.Get("/agent-connection-watch", api.workspaceAgentConnWatcher.WorkspaceAgentConnectionWatch)
+				r.Post("/cooplay/keepalive", api.postWorkspaceCooplayKeepalive)
 			})
 		})
 		r.Route("/workspacebuilds/{workspacebuild}", func(r chi.Router) {

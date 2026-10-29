@@ -153,6 +153,10 @@ func (s *Server) Handler() http.Handler {
 			r.Get("/", s.listWakeIntents)
 			r.Post("/{workspace_id}/ack", s.ackWakeIntent)
 		})
+		r.Route("/keepalive-intents", func(r chi.Router) {
+			r.Get("/", s.listKeepaliveIntents)
+			r.Post("/{workspace_id}/ack", s.ackKeepaliveIntent)
+		})
 	})
 	r.NotFound(func(rw http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), rw, http.StatusNotFound, CodeNotFound, "Route not found.", "")

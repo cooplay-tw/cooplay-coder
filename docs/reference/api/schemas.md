@@ -19016,6 +19016,36 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 | `p50` | number | false    |              |             |
 | `p95` | number | false    |              |             |
 
+## codersdk.WorkspaceCooplayKeepaliveRequest
+
+```json
+{
+  "for_seconds": 0
+}
+```
+
+### Properties
+
+| Name          | Type    | Required | Restrictions | Description                                                                                             |
+|---------------|---------|----------|--------------|---------------------------------------------------------------------------------------------------------|
+| `for_seconds` | integer | false    |              | For seconds is the requested keepalive duration. Zero requests WorkspaceCooplayKeepaliveDefaultSeconds. |
+
+## codersdk.WorkspaceCooplayKeepaliveResponse
+
+```json
+{
+  "for_seconds": 0,
+  "requested_at": "2019-08-24T14:15:22Z"
+}
+```
+
+### Properties
+
+| Name           | Type    | Required | Restrictions | Description |
+|----------------|---------|----------|--------------|-------------|
+| `for_seconds`  | integer | false    |              |             |
+| `requested_at` | string  | false    |              |             |
+
 ## codersdk.WorkspaceDeploymentStats
 
 ```json

@@ -14142,6 +14142,46 @@
 				]
 			}
 		},
+		"/api/v2/workspaces/{workspace}/cooplay/keepalive": {
+			"post": {
+				"consumes": ["application/json"],
+				"produces": ["application/json"],
+				"tags": ["Workspaces"],
+				"summary": "Request a keepalive for a managed workspace",
+				"operationId": "request-a-keepalive-for-a-managed-workspace",
+				"parameters": [
+					{
+						"type": "string",
+						"format": "uuid",
+						"description": "Workspace ID",
+						"name": "workspace",
+						"in": "path",
+						"required": true
+					},
+					{
+						"description": "Keepalive request",
+						"name": "request",
+						"in": "body",
+						"schema": {
+							"$ref": "#/definitions/codersdk.WorkspaceCooplayKeepaliveRequest"
+						}
+					}
+				],
+				"responses": {
+					"202": {
+						"description": "Accepted",
+						"schema": {
+							"$ref": "#/definitions/codersdk.WorkspaceCooplayKeepaliveResponse"
+						}
+					}
+				},
+				"security": [
+					{
+						"CoderSessionToken": []
+					}
+				]
+			}
+		},
 		"/api/v2/workspaces/{workspace}/dormant": {
 			"put": {
 				"consumes": ["application/json"],
@@ -29326,6 +29366,27 @@
 				"p95": {
 					"type": "number",
 					"format": "float64"
+				}
+			}
+		},
+		"codersdk.WorkspaceCooplayKeepaliveRequest": {
+			"type": "object",
+			"properties": {
+				"for_seconds": {
+					"description": "ForSeconds is the requested keepalive duration. Zero requests\nWorkspaceCooplayKeepaliveDefaultSeconds.",
+					"type": "integer"
+				}
+			}
+		},
+		"codersdk.WorkspaceCooplayKeepaliveResponse": {
+			"type": "object",
+			"properties": {
+				"for_seconds": {
+					"type": "integer"
+				},
+				"requested_at": {
+					"type": "string",
+					"format": "date-time"
 				}
 			}
 		},

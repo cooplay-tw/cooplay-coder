@@ -2053,6 +2053,54 @@ curl -X PUT http://coder-server:8080/api/v2/workspaces/{workspace}/autoupdates \
 
 To perform this operation, you must be authenticated. [Learn more](authentication.md).
 
+## Request a keepalive for a managed workspace
+
+### Code samples
+
+```sh
+# Example request using curl
+curl -X POST http://coder-server:8080/api/v2/workspaces/{workspace}/cooplay/keepalive \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`POST /api/v2/workspaces/{workspace}/cooplay/keepalive`
+
+> Body parameter
+
+```json
+{
+  "for_seconds": 0
+}
+```
+
+### Parameters
+
+| Name        | In   | Type                                                                                             | Required | Description       |
+|-------------|------|--------------------------------------------------------------------------------------------------|----------|-------------------|
+| `workspace` | path | string(uuid)                                                                                     | true     | Workspace ID      |
+| `body`      | body | [codersdk.WorkspaceCooplayKeepaliveRequest](schemas.md#codersdkworkspacecooplaykeepaliverequest) | false    | Keepalive request |
+
+### Example responses
+
+> 202 Response
+
+```json
+{
+  "for_seconds": 0,
+  "requested_at": "2019-08-24T14:15:22Z"
+}
+```
+
+### Responses
+
+| Status | Meaning                                                       | Description | Schema                                                                                             |
+|--------|---------------------------------------------------------------|-------------|----------------------------------------------------------------------------------------------------|
+| 202    | [Accepted](https://tools.ietf.org/html/rfc7231#section-6.3.3) | Accepted    | [codersdk.WorkspaceCooplayKeepaliveResponse](schemas.md#codersdkworkspacecooplaykeepaliveresponse) |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
 ## Update workspace dormancy status by id
 
 ### Code samples

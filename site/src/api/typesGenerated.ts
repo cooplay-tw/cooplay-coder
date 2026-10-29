@@ -11718,6 +11718,43 @@ export interface WorkspaceConnectionLatencyMS {
 	readonly P95: number;
 }
 
+// From codersdk/workspacecooplay.go
+/**
+ * WorkspaceCooplayKeepaliveDefaultSeconds is the keepalive duration of
+ * a request without one: two hours, the "Keep awake 2 h" action.
+ */
+export const WorkspaceCooplayKeepaliveDefaultSeconds = 7200;
+
+// From codersdk/workspacecooplay.go
+/**
+ * WorkspaceCooplayKeepaliveMaxSeconds bounds a keepalive request. The
+ * platform controller applies its own maximum.
+ */
+export const WorkspaceCooplayKeepaliveMaxSeconds = 43200;
+
+// From codersdk/workspacecooplay.go
+/**
+ * WorkspaceCooplayKeepaliveRequest asks the platform controller to keep a
+ * workspace of a managed template awake.
+ */
+export interface WorkspaceCooplayKeepaliveRequest {
+	/**
+	 * ForSeconds is the requested keepalive duration. Zero requests
+	 * WorkspaceCooplayKeepaliveDefaultSeconds.
+	 */
+	readonly for_seconds?: number;
+}
+
+// From codersdk/workspacecooplay.go
+/**
+ * WorkspaceCooplayKeepaliveResponse is the recorded keepalive request. The
+ * platform controller applies it asynchronously.
+ */
+export interface WorkspaceCooplayKeepaliveResponse {
+	readonly requested_at: string;
+	readonly for_seconds: number;
+}
+
 // From codersdk/deployment.go
 export interface WorkspaceDeploymentStats {
 	readonly pending: number;

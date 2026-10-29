@@ -1,6 +1,7 @@
 package admissionapi_test
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"sort"
@@ -15,6 +16,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database/dbtime"
 	"github.com/coder/coder/v2/coderd/workspaceadmission"
 	"github.com/coder/coder/v2/coderd/workspaceadmission/admissionapi"
+	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/testutil"
 	"github.com/coder/quartz"
 )
@@ -203,4 +205,140 @@ func TestWatchWakesOnWakeIntents(t *testing.T) {
 	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/watch?cursor="+resp.Cursor, nil, &after))
 	require.True(t, after.Changed)
 	require.NotEqual(t, resp.Cursor, after.Cursor)
+}
+
+func TestKeepaliveIntents(t *testing.T) {
+	t.Parallel()
+	env := newAPIEnv(t, nil)
+	ws := env.agentWorkspace(t)
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
+
+	var raw json.RawMessage
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/keepalive-intents?pending=true", nil, &raw))
+	require.Empty(t, rawIntentKeys(t, raw))
+
+	// The workspace owner presses "Keep awake 2 h" on the workspace page.
+	resp, err := env.member.WorkspaceCooplayKeepalive(ctx, ws.Workspace.ID, codersdk.WorkspaceCooplayKeepaliveRequest{})
+	require.NoError(t, err)
+	require.Equal(t, codersdk.WorkspaceCooplayKeepaliveDefaultSeconds, resp.ForSeconds)
+
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/keepalive-intents?pending=true&limit=100", nil, &raw))
+	// The keys are the controller contract; acked_at is omitted while it is
+	// null.
+	require.Equal(t, [][]string{{"for_seconds", "requested_at", "requested_by", "workspace_id"}}, rawIntentKeys(t, raw))
+	var list admissionapi.ListKeepaliveIntentsResponse
+	require.NoError(t, json.Unmarshal(raw, &list))
+	require.Len(t, list.Intents, 1)
+	intent := list.Intents[0]
+	require.Equal(t, ws.Workspace.ID, intent.WorkspaceID)
+	require.Equal(t, env.memberID, intent.RequestedBy)
+	require.Equal(t, 7200, intent.ForSeconds)
+	require.True(t, intent.RequestedAt.Equal(resp.RequestedAt))
+
+	// Validation.
+	var errResp admissionapi.ErrorResponse
+	for _, path := range []string{"/v1/keepalive-intents?pending=maybe", "/v1/keepalive-intents?limit=0", "/v1/keepalive-intents?limit=1001"} {
+		require.Equal(t, http.StatusBadRequest, env.call(ctx, t, http.MethodGet, path, nil, &errResp), path)
+		require.Equal(t, admissionapi.CodeInvalidRequest, errResp.Code)
+	}
+	ackPath := "/v1/keepalive-intents/" + ws.Workspace.ID.String() + "/ack"
+	until := dbtime.Now().Add(2 * time.Hour)
+	for _, body := range []any{
+		// requested_at is required.
+		admissionapi.AckKeepaliveIntentRequest{Until: &until, Result: admissionapi.KeepaliveResultApplied},
+		// Unknown result.
+		admissionapi.AckKeepaliveIntentRequest{RequestedAt: intent.RequestedAt, Until: &until, Result: "extended"},
+		// An applied keepalive names its end.
+		admissionapi.AckKeepaliveIntentRequest{RequestedAt: intent.RequestedAt, Result: admissionapi.KeepaliveResultApplied},
+		map[string]any{"requested_at": intent.RequestedAt, "until": time.Time{}, "result": "applied"},
+		map[string]any{"requested_at": intent.RequestedAt, "until": until, "result": "applied", "extra": true},
+	} {
+		require.Equal(t, http.StatusBadRequest, env.call(ctx, t, http.MethodPost, ackPath, body, &errResp), "%+v", body)
+		require.Equal(t, admissionapi.CodeInvalidRequest, errResp.Code)
+	}
+
+	// An acknowledgement of a request the controller did not see is
+	// refused, as is one for a workspace without an intent.
+	var ack admissionapi.AckIntentResponse
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodPost, ackPath, admissionapi.AckKeepaliveIntentRequest{
+		RequestedAt: intent.RequestedAt.Add(-time.Second),
+		Until:       &until,
+		Result:      admissionapi.KeepaliveResultApplied,
+	}, &ack))
+	require.False(t, ack.Acked)
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodPost, "/v1/keepalive-intents/"+uuid.NewString()+"/ack", admissionapi.AckKeepaliveIntentRequest{
+		RequestedAt: intent.RequestedAt,
+		Until:       &until,
+		Result:      admissionapi.KeepaliveResultApplied,
+	}, &ack))
+	require.False(t, ack.Acked)
+
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodPost, ackPath, admissionapi.AckKeepaliveIntentRequest{
+		RequestedAt: intent.RequestedAt,
+		Until:       &until,
+		Result:      admissionapi.KeepaliveResultApplied,
+	}, &ack))
+	require.True(t, ack.Acked)
+
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/keepalive-intents?pending=true", nil, &raw))
+	require.Empty(t, rawIntentKeys(t, raw))
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/keepalive-intents", nil, &raw))
+	require.Equal(t, [][]string{{"acked_at", "for_seconds", "requested_at", "requested_by", "workspace_id"}}, rawIntentKeys(t, raw))
+	rows, err := env.db.GetWorkspaceAdmissionKeepaliveIntents(ctx, database.GetWorkspaceAdmissionKeepaliveIntentsParams{LimitCount: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, sql.NullString{String: admissionapi.KeepaliveResultApplied, Valid: true}, rows[0].AckedResult)
+	require.True(t, rows[0].AckedUntil.Time.Equal(dbtime.Time(until)))
+
+	// A new request after the acknowledgement is pending again. A denial
+	// needs no end; the controller client sends a zero time.
+	resp, err = env.member.WorkspaceCooplayKeepalive(ctx, ws.Workspace.ID, codersdk.WorkspaceCooplayKeepaliveRequest{ForSeconds: 600})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/keepalive-intents?pending=true", nil, &list))
+	require.Len(t, list.Intents, 1)
+	require.Equal(t, 600, list.Intents[0].ForSeconds)
+	require.Nil(t, list.Intents[0].AckedAt)
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodPost, ackPath, map[string]any{
+		"requested_at": resp.RequestedAt,
+		"until":        time.Time{},
+		"result":       admissionapi.KeepaliveResultDenied,
+	}, &ack))
+	require.True(t, ack.Acked)
+	rows, err = env.db.GetWorkspaceAdmissionKeepaliveIntents(ctx, database.GetWorkspaceAdmissionKeepaliveIntentsParams{LimitCount: 10})
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, sql.NullString{String: admissionapi.KeepaliveResultDenied, Valid: true}, rows[0].AckedResult)
+	require.False(t, rows[0].AckedUntil.Valid)
+}
+
+// TestWatchWakesOnKeepaliveIntents checks that the long poll returns for a
+// keepalive request on the workspace page even when no admission record
+// changed.
+func TestWatchWakesOnKeepaliveIntents(t *testing.T) {
+	t.Parallel()
+	// The watch timeout never fires on the mock clock, so only a
+	// notification ends the long poll.
+	clock := quartz.NewMock(t)
+	env := newAPIEnv(t, clock)
+	ws := env.agentWorkspace(t)
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
+
+	var initial admissionapi.WatchResponse
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/watch", nil, &initial))
+
+	trap := clock.Trap().NewTimer("admissionapi", "watch")
+	defer trap.Close()
+	done := make(chan admissionapi.WatchResponse, 1)
+	go func() {
+		var resp admissionapi.WatchResponse
+		_ = env.call(ctx, t, http.MethodGet, "/v1/watch?timeout_seconds=30&cursor="+initial.Cursor, nil, &resp)
+		done <- resp
+	}()
+	trap.MustWait(ctx).MustRelease(ctx)
+
+	_, err := env.member.WorkspaceCooplayKeepalive(ctx, ws.Workspace.ID, codersdk.WorkspaceCooplayKeepaliveRequest{})
+	require.NoError(t, err)
+	resp := testutil.TryReceive(ctx, t, done)
+	require.True(t, resp.Changed)
+	require.NotEqual(t, initial.Cursor, resp.Cursor)
 }
