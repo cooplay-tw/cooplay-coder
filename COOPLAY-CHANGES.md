@@ -7,7 +7,7 @@ the license.
 
 - Base: Coder tag `v2.37.6`, commit `c57613f858ba063507e4106ec3a7ce683df4d1d2`.
 - Modified by: Cooplay.
-- Dates of modification: 2026-10-25, 2026-10-26 and 2026-10-29.
+- Dates of modification: 2026-10-25, 2026-10-26, 2026-10-29 and 2026-10-30.
 
 The modifications only use and change AGPL-licensed code. No code under
 `enterprise/` is used, enabled or modified, and no entitlement checks were
@@ -129,3 +129,56 @@ Modified areas:
   (`tailnet.DefaultLostTimeout`) is raised from 15 minutes to 24 hours. All
   `tailnet.Conn` users, including coderd's server tailnet and CLI clients,
   use the new default. No server flag or deployment option was added.
+
+## Power management of managed workspaces
+
+The platform controller suspends the microVMs of managed workspaces
+(paused, hibernated, cold) while their Coder build stays running. Coder
+records what clients ask for, so the controller can wake a workspace or
+keep it awake, and serves the agent connection state the controller needs.
+
+Modified areas:
+
+- Database schema and queries (`coderd/database`): migration `000587`
+  adds the `workspace_admission_wake_intents`,
+  `workspace_admission_keepalive_intents`,
+  `workspace_admission_create_operations`,
+  `workspace_admission_delete_operations`,
+  `workspace_admission_workspace_states` and `workspace_admission_grants`
+  tables with a migration fixture, the intent and agent queries in
+  `queries/workspaceadmissionintents.sql` and
+  `queries/workspaceadmissions.sql`, and the generated code, mocks,
+  metrics wrappers and `dbauthz` methods. The admission change cursor
+  covers admission records, intents and reported power states.
+- RBAC (`coderd/rbac`, `coderd/database/dbauthz`): a `workspace_wake_recorder`
+  subject that can only read managed templates, workspaces and their
+  agents and create intent records. It cannot acknowledge intents.
+- Wake intents (`coderd/workspaceadmission/wakeintent`,
+  `coderd/workspaceadmission_wake.go`, `coderd/workspaceagents.go`,
+  `coderd/workspaceapps`, `coderd/coderd.go`): a recorder with a
+  non-blocking queue and one worker. Coordinated tunnels on
+  `/api/v2/tailnet`, the single-agent coordinate route, web terminals and
+  workspace app requests enqueue a request after the requester was
+  authorized. The worker skips unmanaged templates, stopped workspaces and
+  workspaces that run with a connected agent, writes the first request for
+  an agent at once and coalesces repeats within one second. Requests are
+  counted in the `coderd_workspace_wake_intents_total` metric by client
+  path and result.
+- Coder Connect exclusion (`tailnet/service.go`, `tailnet/tunnel.go`): a
+  tunnel authorizer can observe that its connection subscribed to
+  workspace updates (`tailnet.WorkspaceUpdatesObserver`). Connections that
+  do, or that send the Coder Desktop telemetry header, never record wake
+  intents.
+- Keepalive intents (`coderd/workspaceadmission_keepalive.go`,
+  `codersdk/workspacecooplay.go`): `POST
+  /api/v2/workspaces/{workspace}/cooplay/keepalive` records a request to
+  keep a managed workspace awake for users who may update the workspace.
+- Restricted admission API (`coderd/workspaceadmission/admissionapi`,
+  `cli/server_admission.go`): `GET /v1/wake-intents`,
+  `POST /v1/wake-intents/{workspace_id}/ack`, `GET /v1/keepalive-intents`
+  and `POST /v1/keepalive-intents/{workspace_id}/ack`, where an
+  acknowledgement only applies to the request the controller saw; intent
+  events end `GET /v1/watch` long polls; workspaces carry the connection
+  state of their agents as recorded in the database. Agents are never
+  dialed.
+- Generated API types and documentation that follow from the changes above.
