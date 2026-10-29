@@ -33340,6 +33340,392 @@ func (q *sqlQuerier) UpsertWorkspaceAdmissionWakeIntent(ctx context.Context, arg
 	return i, err
 }
 
+const countLiveWorkspaceAdmissionCreateOperationsByGrantID = `-- name: CountLiveWorkspaceAdmissionCreateOperationsByGrantID :one
+SELECT
+	COUNT(*)::integer
+FROM
+	workspace_admission_create_operations co
+JOIN
+	workspaces w ON w.id = co.workspace_id
+WHERE
+	co.grant_id = $1::text
+	AND NOT w.deleted
+`
+
+// Counts the workspaces created under a grant that are not deleted,
+// including workspaces whose first build has not run yet. A workspace
+// counts until its DELETE build succeeded.
+func (q *sqlQuerier) CountLiveWorkspaceAdmissionCreateOperationsByGrantID(ctx context.Context, grantID string) (int32, error) {
+	row := q.db.QueryRowContext(ctx, countLiveWorkspaceAdmissionCreateOperationsByGrantID, grantID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const getWorkspaceAdmissionCreateOperationByOperationID = `-- name: GetWorkspaceAdmissionCreateOperationByOperationID :one
+SELECT
+	operation_id, workspace_id, workspace_build_id, job_id, organization_id, owner_id, grant_id, run_id, source, created_at
+FROM
+	workspace_admission_create_operations
+WHERE
+	operation_id = $1
+`
+
+func (q *sqlQuerier) GetWorkspaceAdmissionCreateOperationByOperationID(ctx context.Context, operationID uuid.UUID) (WorkspaceAdmissionCreateOperation, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceAdmissionCreateOperationByOperationID, operationID)
+	var i WorkspaceAdmissionCreateOperation
+	err := row.Scan(
+		&i.OperationID,
+		&i.WorkspaceID,
+		&i.WorkspaceBuildID,
+		&i.JobID,
+		&i.OrganizationID,
+		&i.OwnerID,
+		&i.GrantID,
+		&i.RunID,
+		&i.Source,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getWorkspaceAdmissionCreateOperationByWorkspaceID = `-- name: GetWorkspaceAdmissionCreateOperationByWorkspaceID :one
+SELECT
+	operation_id, workspace_id, workspace_build_id, job_id, organization_id, owner_id, grant_id, run_id, source, created_at
+FROM
+	workspace_admission_create_operations
+WHERE
+	workspace_id = $1
+`
+
+func (q *sqlQuerier) GetWorkspaceAdmissionCreateOperationByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (WorkspaceAdmissionCreateOperation, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceAdmissionCreateOperationByWorkspaceID, workspaceID)
+	var i WorkspaceAdmissionCreateOperation
+	err := row.Scan(
+		&i.OperationID,
+		&i.WorkspaceID,
+		&i.WorkspaceBuildID,
+		&i.JobID,
+		&i.OrganizationID,
+		&i.OwnerID,
+		&i.GrantID,
+		&i.RunID,
+		&i.Source,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getWorkspaceAdmissionDeleteOperationByOperationID = `-- name: GetWorkspaceAdmissionDeleteOperationByOperationID :one
+SELECT
+	operation_id, workspace_id, workspace_build_id, job_id, organization_id, grant_id, canceled_job_id, created_at
+FROM
+	workspace_admission_delete_operations
+WHERE
+	operation_id = $1
+`
+
+func (q *sqlQuerier) GetWorkspaceAdmissionDeleteOperationByOperationID(ctx context.Context, operationID uuid.UUID) (WorkspaceAdmissionDeleteOperation, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceAdmissionDeleteOperationByOperationID, operationID)
+	var i WorkspaceAdmissionDeleteOperation
+	err := row.Scan(
+		&i.OperationID,
+		&i.WorkspaceID,
+		&i.WorkspaceBuildID,
+		&i.JobID,
+		&i.OrganizationID,
+		&i.GrantID,
+		&i.CanceledJobID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getWorkspaceAdmissionGrantByIDWithLock = `-- name: GetWorkspaceAdmissionGrantByIDWithLock :one
+SELECT
+	id, owner_id, organization_id, template_ids, name_prefix, max_workspaces, allow_delete, expires_at, revoked_at, created_at, updated_at
+FROM
+	workspace_admission_grants
+WHERE
+	id = $1
+FOR UPDATE
+`
+
+// Locks a mirrored grant for the rest of the transaction, so creates and
+// deletes under the same grant see each other's committed changes.
+func (q *sqlQuerier) GetWorkspaceAdmissionGrantByIDWithLock(ctx context.Context, id string) (WorkspaceAdmissionGrant, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceAdmissionGrantByIDWithLock, id)
+	var i WorkspaceAdmissionGrant
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.OrganizationID,
+		pq.Array(&i.TemplateIDs),
+		&i.NamePrefix,
+		&i.MaxWorkspaces,
+		&i.AllowDelete,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertWorkspaceAdmissionCreateOperation = `-- name: InsertWorkspaceAdmissionCreateOperation :one
+INSERT INTO workspace_admission_create_operations (
+	operation_id,
+	workspace_id,
+	workspace_build_id,
+	job_id,
+	organization_id,
+	owner_id,
+	grant_id,
+	run_id,
+	source,
+	created_at
+) VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5,
+	$6,
+	$7,
+	$8,
+	$9,
+	$10
+)
+RETURNING
+	operation_id, workspace_id, workspace_build_id, job_id, organization_id, owner_id, grant_id, run_id, source, created_at
+`
+
+type InsertWorkspaceAdmissionCreateOperationParams struct {
+	OperationID      uuid.UUID       `db:"operation_id" json:"operation_id"`
+	WorkspaceID      uuid.UUID       `db:"workspace_id" json:"workspace_id"`
+	WorkspaceBuildID uuid.UUID       `db:"workspace_build_id" json:"workspace_build_id"`
+	JobID            uuid.UUID       `db:"job_id" json:"job_id"`
+	OrganizationID   uuid.UUID       `db:"organization_id" json:"organization_id"`
+	OwnerID          uuid.UUID       `db:"owner_id" json:"owner_id"`
+	GrantID          sql.NullString  `db:"grant_id" json:"grant_id"`
+	RunID            sql.NullString  `db:"run_id" json:"run_id"`
+	Source           json.RawMessage `db:"source" json:"source"`
+	CreatedAt        time.Time       `db:"created_at" json:"created_at"`
+}
+
+func (q *sqlQuerier) InsertWorkspaceAdmissionCreateOperation(ctx context.Context, arg InsertWorkspaceAdmissionCreateOperationParams) (WorkspaceAdmissionCreateOperation, error) {
+	row := q.db.QueryRowContext(ctx, insertWorkspaceAdmissionCreateOperation,
+		arg.OperationID,
+		arg.WorkspaceID,
+		arg.WorkspaceBuildID,
+		arg.JobID,
+		arg.OrganizationID,
+		arg.OwnerID,
+		arg.GrantID,
+		arg.RunID,
+		arg.Source,
+		arg.CreatedAt,
+	)
+	var i WorkspaceAdmissionCreateOperation
+	err := row.Scan(
+		&i.OperationID,
+		&i.WorkspaceID,
+		&i.WorkspaceBuildID,
+		&i.JobID,
+		&i.OrganizationID,
+		&i.OwnerID,
+		&i.GrantID,
+		&i.RunID,
+		&i.Source,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const insertWorkspaceAdmissionDeleteOperation = `-- name: InsertWorkspaceAdmissionDeleteOperation :one
+INSERT INTO workspace_admission_delete_operations (
+	operation_id,
+	workspace_id,
+	workspace_build_id,
+	job_id,
+	organization_id,
+	grant_id,
+	canceled_job_id,
+	created_at
+) VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5,
+	$6,
+	$7,
+	$8
+)
+RETURNING
+	operation_id, workspace_id, workspace_build_id, job_id, organization_id, grant_id, canceled_job_id, created_at
+`
+
+type InsertWorkspaceAdmissionDeleteOperationParams struct {
+	OperationID      uuid.UUID      `db:"operation_id" json:"operation_id"`
+	WorkspaceID      uuid.UUID      `db:"workspace_id" json:"workspace_id"`
+	WorkspaceBuildID uuid.UUID      `db:"workspace_build_id" json:"workspace_build_id"`
+	JobID            uuid.UUID      `db:"job_id" json:"job_id"`
+	OrganizationID   uuid.UUID      `db:"organization_id" json:"organization_id"`
+	GrantID          sql.NullString `db:"grant_id" json:"grant_id"`
+	CanceledJobID    uuid.NullUUID  `db:"canceled_job_id" json:"canceled_job_id"`
+	CreatedAt        time.Time      `db:"created_at" json:"created_at"`
+}
+
+func (q *sqlQuerier) InsertWorkspaceAdmissionDeleteOperation(ctx context.Context, arg InsertWorkspaceAdmissionDeleteOperationParams) (WorkspaceAdmissionDeleteOperation, error) {
+	row := q.db.QueryRowContext(ctx, insertWorkspaceAdmissionDeleteOperation,
+		arg.OperationID,
+		arg.WorkspaceID,
+		arg.WorkspaceBuildID,
+		arg.JobID,
+		arg.OrganizationID,
+		arg.GrantID,
+		arg.CanceledJobID,
+		arg.CreatedAt,
+	)
+	var i WorkspaceAdmissionDeleteOperation
+	err := row.Scan(
+		&i.OperationID,
+		&i.WorkspaceID,
+		&i.WorkspaceBuildID,
+		&i.JobID,
+		&i.OrganizationID,
+		&i.GrantID,
+		&i.CanceledJobID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const revokeWorkspaceAdmissionGrant = `-- name: RevokeWorkspaceAdmissionGrant :one
+UPDATE
+	workspace_admission_grants
+SET
+	revoked_at = COALESCE(revoked_at, $1::timestamptz),
+	updated_at = CASE WHEN revoked_at IS NULL THEN $1::timestamptz ELSE updated_at END
+WHERE
+	id = $2
+RETURNING
+	id, owner_id, organization_id, template_ids, name_prefix, max_workspaces, allow_delete, expires_at, revoked_at, created_at, updated_at
+`
+
+type RevokeWorkspaceAdmissionGrantParams struct {
+	Now time.Time `db:"now" json:"now"`
+	ID  string    `db:"id" json:"id"`
+}
+
+// Revokes a mirrored grant. Revoking it again keeps the first revocation.
+func (q *sqlQuerier) RevokeWorkspaceAdmissionGrant(ctx context.Context, arg RevokeWorkspaceAdmissionGrantParams) (WorkspaceAdmissionGrant, error) {
+	row := q.db.QueryRowContext(ctx, revokeWorkspaceAdmissionGrant, arg.Now, arg.ID)
+	var i WorkspaceAdmissionGrant
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.OrganizationID,
+		pq.Array(&i.TemplateIDs),
+		&i.NamePrefix,
+		&i.MaxWorkspaces,
+		&i.AllowDelete,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertWorkspaceAdmissionGrant = `-- name: UpsertWorkspaceAdmissionGrant :one
+INSERT INTO workspace_admission_grants (
+	id,
+	owner_id,
+	organization_id,
+	template_ids,
+	name_prefix,
+	max_workspaces,
+	allow_delete,
+	expires_at,
+	revoked_at,
+	created_at,
+	updated_at
+) VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5,
+	$6,
+	$7,
+	$8,
+	$9,
+	$10,
+	$10
+)
+ON CONFLICT (id) DO UPDATE SET
+	template_ids = EXCLUDED.template_ids,
+	name_prefix = EXCLUDED.name_prefix,
+	max_workspaces = EXCLUDED.max_workspaces,
+	allow_delete = EXCLUDED.allow_delete,
+	expires_at = EXCLUDED.expires_at,
+	revoked_at = COALESCE(workspace_admission_grants.revoked_at, EXCLUDED.revoked_at),
+	updated_at = EXCLUDED.updated_at
+WHERE
+	workspace_admission_grants.owner_id = EXCLUDED.owner_id
+	AND workspace_admission_grants.organization_id = EXCLUDED.organization_id
+RETURNING
+	id, owner_id, organization_id, template_ids, name_prefix, max_workspaces, allow_delete, expires_at, revoked_at, created_at, updated_at
+`
+
+type UpsertWorkspaceAdmissionGrantParams struct {
+	ID             string       `db:"id" json:"id"`
+	OwnerID        uuid.UUID    `db:"owner_id" json:"owner_id"`
+	OrganizationID uuid.UUID    `db:"organization_id" json:"organization_id"`
+	TemplateIDs    []uuid.UUID  `db:"template_ids" json:"template_ids"`
+	NamePrefix     string       `db:"name_prefix" json:"name_prefix"`
+	MaxWorkspaces  int32        `db:"max_workspaces" json:"max_workspaces"`
+	AllowDelete    bool         `db:"allow_delete" json:"allow_delete"`
+	ExpiresAt      time.Time    `db:"expires_at" json:"expires_at"`
+	RevokedAt      sql.NullTime `db:"revoked_at" json:"revoked_at"`
+	Now            time.Time    `db:"now" json:"now"`
+}
+
+// Mirrors the scope of a controller grant. The owner and organization of a
+// grant never change, so a mirror that names others returns no row. A
+// revocation is final: a later mirror never clears it.
+func (q *sqlQuerier) UpsertWorkspaceAdmissionGrant(ctx context.Context, arg UpsertWorkspaceAdmissionGrantParams) (WorkspaceAdmissionGrant, error) {
+	row := q.db.QueryRowContext(ctx, upsertWorkspaceAdmissionGrant,
+		arg.ID,
+		arg.OwnerID,
+		arg.OrganizationID,
+		pq.Array(arg.TemplateIDs),
+		arg.NamePrefix,
+		arg.MaxWorkspaces,
+		arg.AllowDelete,
+		arg.ExpiresAt,
+		arg.RevokedAt,
+		arg.Now,
+	)
+	var i WorkspaceAdmissionGrant
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.OrganizationID,
+		pq.Array(&i.TemplateIDs),
+		&i.NamePrefix,
+		&i.MaxWorkspaces,
+		&i.AllowDelete,
+		&i.ExpiresAt,
+		&i.RevokedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const deleteWorkspaceAdmissionEntitlementsByUserID = `-- name: DeleteWorkspaceAdmissionEntitlementsByUserID :exec
 DELETE FROM
 	workspace_admission_entitlements

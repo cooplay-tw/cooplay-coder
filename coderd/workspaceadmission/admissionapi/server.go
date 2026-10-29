@@ -27,6 +27,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database/pubsub"
 	"github.com/coder/coder/v2/coderd/files"
 	"github.com/coder/coder/v2/coderd/httpapi"
+	"github.com/coder/coder/v2/coderd/workspaceadmission"
 	"github.com/coder/coder/v2/coderd/wsbuilder"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/quartz"
@@ -62,6 +63,10 @@ type Options struct {
 	// reporting its connection counts as disconnected, as in the Coder
 	// API. Zero uses DefaultAgentInactiveDisconnectTimeout.
 	AgentInactiveDisconnectTimeout time.Duration
+	// CreateWorkspace creates workspaces on behalf of their owners for
+	// POST /v1/workspaces, normally coderd's
+	// API.CreateWorkspaceForAdmission. Without it the route answers 501.
+	CreateWorkspace workspaceadmission.CreateWorkspaceFunc
 }
 
 // Server serves the admission API.
@@ -79,6 +84,7 @@ type Server struct {
 	// agentInactiveTimeout decides when an agent that stopped reporting
 	// counts as disconnected.
 	agentInactiveTimeout time.Duration
+	createWorkspaceFn    workspaceadmission.CreateWorkspaceFunc
 }
 
 // New validates the options and returns a server. It fails when the token
@@ -116,6 +122,7 @@ func New(opts Options) (*Server, error) {
 		tokenHashFile:        opts.TokenHashFile,
 		clock:                clock,
 		agentInactiveTimeout: agentInactiveTimeout,
+		createWorkspaceFn:    opts.CreateWorkspace,
 	}, nil
 }
 
@@ -157,10 +164,16 @@ func (s *Server) Handler() http.Handler {
 		})
 		r.Route("/workspaces", func(r chi.Router) {
 			r.Get("/", s.listWorkspaces)
+			r.Post("/", s.createWorkspace)
 			r.Route("/{workspace_id}", func(r chi.Router) {
 				r.Get("/", s.showWorkspace)
 				r.Post("/stop", s.stopWorkspace)
+				r.Post("/delete", s.deleteWorkspace)
 			})
+		})
+		r.Route("/grants/{grant_id}", func(r chi.Router) {
+			r.Put("/", s.putGrant)
+			r.Post("/revoke", s.revokeGrant)
 		})
 		r.Post("/jobs/{job_id}/cancel", s.cancelJob)
 		r.Route("/wake-intents", func(r chi.Router) {

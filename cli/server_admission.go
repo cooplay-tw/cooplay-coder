@@ -52,6 +52,7 @@ func serveWorkspaceAdmission(ctx context.Context, logger slog.Logger, inv *serpe
 		TokenHashFile:                  vals.WorkspaceAdmission.TokenHashFile.String(),
 		Clock:                          nil,
 		AgentInactiveDisconnectTimeout: api.AgentInactiveDisconnectTimeout,
+		CreateWorkspace:                api.CreateWorkspaceForAdmission,
 	})
 	if err != nil {
 		return nil, xerrors.Errorf("create workspace admission api: %w", err)

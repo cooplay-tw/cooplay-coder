@@ -2185,6 +2185,13 @@ func (q *querier) CountInProgressPrebuilds(ctx context.Context) ([]database.Coun
 	return q.db.CountInProgressPrebuilds(ctx)
 }
 
+func (q *querier) CountLiveWorkspaceAdmissionCreateOperationsByGrantID(ctx context.Context, grantID string) (int32, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return 0, err
+	}
+	return q.db.CountLiveWorkspaceAdmissionCreateOperationsByGrantID(ctx, grantID)
+}
+
 func (q *querier) CountOIDCLinkedIDsByIssuer(ctx context.Context) ([]database.CountOIDCLinkedIDsByIssuerRow, error) {
 	// Requires the ability to read all user's personal data.
 	if err := q.authorizeContext(ctx, policy.ActionReadPersonal, rbac.ResourceUser); err != nil {
@@ -5637,6 +5644,18 @@ func (q *querier) GetWorkspaceACLByID(ctx context.Context, id uuid.UUID) (databa
 	return q.db.GetWorkspaceACLByID(ctx, id)
 }
 
+func (q *querier) GetWorkspaceAdmissionCreateOperationByOperationID(ctx context.Context, operationID uuid.UUID) (database.WorkspaceAdmissionCreateOperation, error) {
+	return fetch(q.log, q.auth, q.db.GetWorkspaceAdmissionCreateOperationByOperationID)(ctx, operationID)
+}
+
+func (q *querier) GetWorkspaceAdmissionCreateOperationByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (database.WorkspaceAdmissionCreateOperation, error) {
+	return fetch(q.log, q.auth, q.db.GetWorkspaceAdmissionCreateOperationByWorkspaceID)(ctx, workspaceID)
+}
+
+func (q *querier) GetWorkspaceAdmissionDeleteOperationByOperationID(ctx context.Context, operationID uuid.UUID) (database.WorkspaceAdmissionDeleteOperation, error) {
+	return fetch(q.log, q.auth, q.db.GetWorkspaceAdmissionDeleteOperationByOperationID)(ctx, operationID)
+}
+
 func (q *querier) GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID(ctx context.Context, arg database.GetWorkspaceAdmissionEntitlementByUserIDAndTemplateIDParams) (database.WorkspaceAdmissionEntitlement, error) {
 	return fetch(q.log, q.auth, q.db.GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID)(ctx, arg)
 }
@@ -5646,6 +5665,15 @@ func (q *querier) GetWorkspaceAdmissionEntitlementsByUserID(ctx context.Context,
 		return nil, err
 	}
 	return q.db.GetWorkspaceAdmissionEntitlementsByUserID(ctx, userID)
+}
+
+func (q *querier) GetWorkspaceAdmissionGrantByIDWithLock(ctx context.Context, id string) (database.WorkspaceAdmissionGrant, error) {
+	// Locking the row is only useful to a caller that changes admission
+	// state under it.
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.WorkspaceAdmissionGrant{}, err
+	}
+	return q.db.GetWorkspaceAdmissionGrantByIDWithLock(ctx, id)
 }
 
 func (q *querier) GetWorkspaceAdmissionKeepaliveIntents(ctx context.Context, arg database.GetWorkspaceAdmissionKeepaliveIntentsParams) ([]database.WorkspaceAdmissionKeepaliveIntent, error) {
@@ -6913,6 +6941,16 @@ func (q *querier) InsertWorkspace(ctx context.Context, arg database.InsertWorksp
 	return insert(q.log, q.auth, obj, q.db.InsertWorkspace)(ctx, arg)
 }
 
+func (q *querier) InsertWorkspaceAdmissionCreateOperation(ctx context.Context, arg database.InsertWorkspaceAdmissionCreateOperationParams) (database.WorkspaceAdmissionCreateOperation, error) {
+	obj := rbac.ResourceWorkspaceAdmission.WithID(arg.OperationID).InOrg(arg.OrganizationID)
+	return insert(q.log, q.auth, obj, q.db.InsertWorkspaceAdmissionCreateOperation)(ctx, arg)
+}
+
+func (q *querier) InsertWorkspaceAdmissionDeleteOperation(ctx context.Context, arg database.InsertWorkspaceAdmissionDeleteOperationParams) (database.WorkspaceAdmissionDeleteOperation, error) {
+	obj := rbac.ResourceWorkspaceAdmission.WithID(arg.OperationID).InOrg(arg.OrganizationID)
+	return insert(q.log, q.auth, obj, q.db.InsertWorkspaceAdmissionDeleteOperation)(ctx, arg)
+}
+
 func (q *querier) InsertWorkspaceAdmissionEntitlement(ctx context.Context, arg database.InsertWorkspaceAdmissionEntitlementParams) (database.WorkspaceAdmissionEntitlement, error) {
 	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
 		return database.WorkspaceAdmissionEntitlement{}, err
@@ -7552,6 +7590,13 @@ func (q *querier) RevokeDBCryptKey(ctx context.Context, activeKeyDigest string) 
 		return err
 	}
 	return q.db.RevokeDBCryptKey(ctx, activeKeyDigest)
+}
+
+func (q *querier) RevokeWorkspaceAdmissionGrant(ctx context.Context, arg database.RevokeWorkspaceAdmissionGrantParams) (database.WorkspaceAdmissionGrant, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.WorkspaceAdmissionGrant{}, err
+	}
+	return q.db.RevokeWorkspaceAdmissionGrant(ctx, arg)
 }
 
 func (q *querier) SelectUsageEventsForPublishing(ctx context.Context, arg time.Time) ([]database.UsageEvent, error) {
@@ -9716,6 +9761,13 @@ func (q *querier) UpsertWebpushVAPIDKeys(ctx context.Context, arg database.Upser
 		return err
 	}
 	return q.db.UpsertWebpushVAPIDKeys(ctx, arg)
+}
+
+func (q *querier) UpsertWorkspaceAdmissionGrant(ctx context.Context, arg database.UpsertWorkspaceAdmissionGrantParams) (database.WorkspaceAdmissionGrant, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.WorkspaceAdmissionGrant{}, err
+	}
+	return q.db.UpsertWorkspaceAdmissionGrant(ctx, arg)
 }
 
 func (q *querier) UpsertWorkspaceAdmissionKeepaliveIntent(ctx context.Context, arg database.UpsertWorkspaceAdmissionKeepaliveIntentParams) (database.WorkspaceAdmissionKeepaliveIntent, error) {

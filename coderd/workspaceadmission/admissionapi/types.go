@@ -31,6 +31,29 @@ const (
 	CodeOperationConflict   = "operation_conflict"
 	CodeJobCompleted        = "job_completed"
 	CodeJobCanceling        = "job_canceling"
+	// CodeNameConflict means the owner already has a workspace with the
+	// requested name.
+	CodeNameConflict = "name_conflict"
+	// CodeOwnerInactive means the workspace owner is suspended, dormant,
+	// deleted or a system user.
+	CodeOwnerInactive = "owner_inactive"
+	// CodeNotEntitled means the owner may not create the workspace: no
+	// entitlement for the template and profile, or no permission to use
+	// the template in its organization.
+	CodeNotEntitled = "not_entitled"
+	// CodeGrantNotFound means the named grant was never mirrored.
+	CodeGrantNotFound = "grant_not_found"
+	// CodeGrantRevoked means the named grant was revoked.
+	CodeGrantRevoked = "grant_revoked"
+	// CodeGrantExpired means the named grant expired.
+	CodeGrantExpired = "grant_expired"
+	// CodeGrantScope means the grant does not cover the request: another
+	// owner, organization or template, a name without the grant's prefix,
+	// a delete without allow_delete or of a workspace created otherwise.
+	CodeGrantScope = "grant_scope"
+	// CodeGrantQuota means the grant already has max_workspaces live
+	// workspaces.
+	CodeGrantQuota = "grant_quota"
 )
 
 // ErrorResponse is the body of every non-2xx response.
@@ -292,6 +315,107 @@ type CancelJobResponse struct {
 	// performs the cancellation.
 	CanceledBeforeStart bool     `json:"canceled_before_start"`
 	Job                 JobState `json:"job"`
+}
+
+// Kinds of create sources (CreateWorkspaceSource.Kind).
+const (
+	// CreateSourceEmployee is a workspace the owner asked for.
+	CreateSourceEmployee = "employee"
+	// CreateSourceAgentGrant is a workspace an agent created under a grant
+	// of the owner.
+	CreateSourceAgentGrant = "agent_grant"
+)
+
+// RichParameterValue is one build parameter of a new workspace.
+type RichParameterValue struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// CreateWorkspaceSource attributes a workspace created on behalf of its
+// owner. Empty strings mean not set. Grant and Run IDs are opaque
+// controller IDs; workspace IDs are UUIDs.
+type CreateWorkspaceSource struct {
+	// Kind is employee or agent_grant. An agent_grant create names its
+	// grant.
+	Kind                 string `json:"kind"`
+	GrantID              string `json:"grant_id"`
+	RunID                string `json:"run_id"`
+	Harness              string `json:"harness"`
+	InitiatorWorkspaceID string `json:"initiator_workspace_id"`
+	CloneOfWorkspaceID   string `json:"clone_of_workspace_id"`
+}
+
+// CreateWorkspaceRequest is the body of POST /v1/workspaces. Coder creates
+// the workspace and its START build on behalf of the owner, with the
+// owner's permissions, in one transaction that also records the waiting
+// admission of the build. Requests are idempotent per operation_id.
+type CreateWorkspaceRequest struct {
+	OperationID uuid.UUID `json:"operation_id"`
+	OwnerID     uuid.UUID `json:"owner_id"`
+	TemplateID  uuid.UUID `json:"template_id"`
+	// TemplateVersionID is a version of the template, or empty for the
+	// active version.
+	TemplateVersionID   string               `json:"template_version_id"`
+	Name                string               `json:"name"`
+	RichParameterValues []RichParameterValue `json:"rich_parameter_values,omitempty"`
+	// Profile is the requested profile. The template's profile parameter
+	// is set to it when the parameters do not set it, and must equal it
+	// when they do.
+	Profile string                `json:"profile"`
+	Source  CreateWorkspaceSource `json:"source"`
+}
+
+// CreateWorkspaceResponse is the body of a successful create. Created is
+// false when the operation already existed and the original workspace is
+// returned.
+type CreateWorkspaceResponse struct {
+	Created     bool      `json:"created"`
+	WorkspaceID uuid.UUID `json:"workspace_id"`
+	BuildID     uuid.UUID `json:"build_id"`
+	JobID       uuid.UUID `json:"job_id"`
+	// Admission is the admission request of the START build, waiting for
+	// capacity when the workspace was just created.
+	Admission Request `json:"admission"`
+}
+
+// DeleteWorkspaceRequest is the body of POST /v1/workspaces/{id}/delete.
+// A delete under a grant needs a grant with allow_delete that created the
+// workspace.
+type DeleteWorkspaceRequest struct {
+	OperationID uuid.UUID `json:"operation_id"`
+	// GrantID is the grant the delete runs under, or empty for a delete the
+	// owner asked for.
+	GrantID string `json:"grant_id"`
+}
+
+// DeleteWorkspaceResponse is the DELETE build of a delete request. Repeats
+// of the operation return the original build.
+type DeleteWorkspaceResponse struct {
+	BuildID uuid.UUID `json:"build_id"`
+	JobID   uuid.UUID `json:"job_id"`
+}
+
+// GrantMirror is the scope of a controller grant that Coder checks, as a
+// backstop, when the controller creates or deletes workspaces under it. The
+// controller is authoritative for grants and counts their workspaces.
+type GrantMirror struct {
+	ID             string    `json:"id"`
+	OwnerID        uuid.UUID `json:"owner_id"`
+	OrganizationID uuid.UUID `json:"organization_id"`
+	// TemplateIDs limits the templates of new workspaces. Empty allows
+	// every template the owner is entitled to.
+	TemplateIDs []uuid.UUID `json:"template_ids,omitempty"`
+	// NamePrefix must start the name of every new workspace when set.
+	NamePrefix string `json:"name_prefix"`
+	// MaxWorkspaces bounds the workspaces created under the grant that are
+	// not deleted, including creates in progress.
+	MaxWorkspaces int  `json:"max_workspaces"`
+	AllowDelete   bool `json:"allow_delete"`
+	// ExpiresAt ends the grant. It is required.
+	ExpiresAt time.Time `json:"expires_at"`
+	// RevokedAt is set once the grant was revoked. A revocation is final.
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
 }
 
 // Results of an acknowledged wake intent.
@@ -612,5 +736,19 @@ func convertKeepaliveIntent(row database.WorkspaceAdmissionKeepaliveIntent) Keep
 		RequestedAt: row.RequestedAt,
 		ForSeconds:  int(row.ForSeconds),
 		AckedAt:     timePtr(row.AckedAt),
+	}
+}
+
+func convertGrant(row database.WorkspaceAdmissionGrant) GrantMirror {
+	return GrantMirror{
+		ID:             row.ID,
+		OwnerID:        row.OwnerID,
+		OrganizationID: row.OrganizationID,
+		TemplateIDs:    row.TemplateIDs,
+		NamePrefix:     row.NamePrefix,
+		MaxWorkspaces:  int(row.MaxWorkspaces),
+		AllowDelete:    row.AllowDelete,
+		ExpiresAt:      row.ExpiresAt,
+		RevokedAt:      timePtr(row.RevokedAt),
 	}
 }

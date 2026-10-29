@@ -103,6 +103,7 @@ func newAPIEnv(t *testing.T, clock quartz.Clock) apiEnv {
 		TokenHashFile:                  hashFile,
 		Clock:                          clock,
 		AgentInactiveDisconnectTimeout: api.AgentInactiveDisconnectTimeout,
+		CreateWorkspace:                api.CreateWorkspaceForAdmission,
 	})
 	require.NoError(t, err)
 	srv := httptest.NewServer(server.Handler())

@@ -148,68 +148,18 @@ func (s *Server) stopWorkspace(rw http.ResponseWriter, r *http.Request) {
 			return err
 		}
 
-		workspace, err := tx.GetWorkspaceByID(ctx, workspaceID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return newAPIError(http.StatusNotFound, CodeNotFound, "Workspace not found.")
-		}
+		workspace, err := managedLiveWorkspace(ctx, tx, workspaceID)
 		if err != nil {
-			return xerrors.Errorf("get workspace: %w", err)
+			return err
 		}
 		ownerID = workspace.OwnerID
-		if _, err := tx.GetWorkspaceAdmissionTemplateByTemplateID(ctx, workspace.TemplateID); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return newAPIError(http.StatusNotFound, CodeNotFound, "Workspace of a managed template not found.")
-			}
-			return xerrors.Errorf("get managed template: %w", err)
-		}
-		if workspace.Deleted {
-			return newAPIError(http.StatusConflict, CodeWorkspaceDeleted, "Workspace is deleted.")
-		}
 
-		latest, err := tx.GetLatestWorkspaceBuildByWorkspaceID(ctx, workspaceID)
+		canceledJob, err := endUnacquiredStart(ctx, tx, workspaceID)
 		if err != nil {
-			return xerrors.Errorf("get latest build: %w", err)
+			return err
 		}
-		latestJob, err := tx.GetProvisionerJobByIDWithLock(ctx, latest.JobID)
-		if err != nil {
-			return xerrors.Errorf("lock latest job: %w", err)
-		}
-		var canceledJobID *uuid.UUID
-		if !latestJob.CompletedAt.Valid {
-			if latest.Transition != database.WorkspaceTransitionStart || latestJob.WorkerID.Valid || latestJob.StartedAt.Valid || latestJob.CanceledAt.Valid {
-				ae := newAPIError(http.StatusConflict, CodeActiveBuild, "Workspace has an active build that a provisioner owns or that is not a pending START.")
-				if bj, err := loadBuildJob(ctx, tx, latest.ID); err == nil {
-					ae.resp.Job = &bj
-				}
-				return ae
-			}
-			// No provisioner acquired the START and we hold its job row
-			// lock, so cancel it before it can start.
-			now := dbtime.Now()
-			rows, err := tx.UpdateManagedWorkspaceBuildJobWithCancelByID(ctx, database.UpdateManagedWorkspaceBuildJobWithCancelByIDParams{
-				ID:          latestJob.ID,
-				CanceledAt:  sql.NullTime{Time: now, Valid: true},
-				CompletedAt: sql.NullTime{Time: now, Valid: true},
-			})
-			if err != nil {
-				return xerrors.Errorf("cancel pending start: %w", err)
-			}
-			if rows != 1 {
-				return xerrors.Errorf("cancel pending start: updated %d jobs", rows)
-			}
-			_, err = tx.UpdatePendingWorkspaceBuildAdmissionStatus(ctx, database.UpdatePendingWorkspaceBuildAdmissionStatusParams{
-				Status: database.WorkspaceAdmissionStatusCanceled,
-				Reason: workspaceadmission.ReasonStoppedByController,
-				Now:    now,
-				JobID:  latestJob.ID,
-			})
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return xerrors.Errorf("cancel pending start admission: %w", err)
-			}
-			canceled = true
-			id := latestJob.ID
-			canceledJobID = &id
-		}
+		canceled = canceledJob.Valid
+		canceledJobID := uuidPtr(canceledJob)
 
 		// The platform stops the workspace without a schedule, like the
 		// lifecycle executor's failed-build cleanup, so the build carries the
@@ -242,7 +192,7 @@ func (s *Server) stopWorkspace(rw http.ResponseWriter, r *http.Request) {
 			WorkspaceBuildID: build.ID,
 			JobID:            job.ID,
 			OrganizationID:   workspace.OrganizationID,
-			CanceledJobID:    uuid.NullUUID{UUID: latestJob.ID, Valid: canceledJobID != nil},
+			CanceledJobID:    canceledJob,
 			Reason:           body.Reason,
 			CreatedAt:        dbtime.Now(),
 		})
@@ -299,6 +249,78 @@ func (s *Server) stopWorkspace(rw http.ResponseWriter, r *http.Request) {
 		status = http.StatusCreated
 	}
 	httpapi.Write(ctx, rw, status, resp)
+}
+
+// managedLiveWorkspace loads a workspace of a managed template that is not
+// deleted.
+func managedLiveWorkspace(ctx context.Context, tx database.Store, workspaceID uuid.UUID) (database.Workspace, error) {
+	workspace, err := tx.GetWorkspaceByID(ctx, workspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return database.Workspace{}, newAPIError(http.StatusNotFound, CodeNotFound, "Workspace not found.")
+	}
+	if err != nil {
+		return database.Workspace{}, xerrors.Errorf("get workspace: %w", err)
+	}
+	if _, err := tx.GetWorkspaceAdmissionTemplateByTemplateID(ctx, workspace.TemplateID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return database.Workspace{}, newAPIError(http.StatusNotFound, CodeNotFound, "Workspace of a managed template not found.")
+		}
+		return database.Workspace{}, xerrors.Errorf("get managed template: %w", err)
+	}
+	if workspace.Deleted {
+		return database.Workspace{}, newAPIError(http.StatusConflict, CodeWorkspaceDeleted, "Workspace is deleted.")
+	}
+	return workspace, nil
+}
+
+// endUnacquiredStart prepares the latest build of a workspace for a STOP or
+// DELETE build in the same transaction. It locks the latest build's job. A
+// START that no provisioner acquired is canceled together with its
+// admission, and its job ID is returned. Any other unfinished build fails
+// with active_build, so the controller can use running cancellation.
+func endUnacquiredStart(ctx context.Context, tx database.Store, workspaceID uuid.UUID) (uuid.NullUUID, error) {
+	latest, err := tx.GetLatestWorkspaceBuildByWorkspaceID(ctx, workspaceID)
+	if err != nil {
+		return uuid.NullUUID{}, xerrors.Errorf("get latest build: %w", err)
+	}
+	latestJob, err := tx.GetProvisionerJobByIDWithLock(ctx, latest.JobID)
+	if err != nil {
+		return uuid.NullUUID{}, xerrors.Errorf("lock latest job: %w", err)
+	}
+	if latestJob.CompletedAt.Valid {
+		return uuid.NullUUID{}, nil
+	}
+	if latest.Transition != database.WorkspaceTransitionStart || latestJob.WorkerID.Valid || latestJob.StartedAt.Valid || latestJob.CanceledAt.Valid {
+		ae := newAPIError(http.StatusConflict, CodeActiveBuild, "Workspace has an active build that a provisioner owns or that is not a pending START.")
+		if bj, err := loadBuildJob(ctx, tx, latest.ID); err == nil {
+			ae.resp.Job = &bj
+		}
+		return uuid.NullUUID{}, ae
+	}
+	// No provisioner acquired the START and we hold its job row lock, so
+	// cancel it before it can start.
+	now := dbtime.Now()
+	rows, err := tx.UpdateManagedWorkspaceBuildJobWithCancelByID(ctx, database.UpdateManagedWorkspaceBuildJobWithCancelByIDParams{
+		ID:          latestJob.ID,
+		CanceledAt:  sql.NullTime{Time: now, Valid: true},
+		CompletedAt: sql.NullTime{Time: now, Valid: true},
+	})
+	if err != nil {
+		return uuid.NullUUID{}, xerrors.Errorf("cancel pending start: %w", err)
+	}
+	if rows != 1 {
+		return uuid.NullUUID{}, xerrors.Errorf("cancel pending start: updated %d jobs", rows)
+	}
+	_, err = tx.UpdatePendingWorkspaceBuildAdmissionStatus(ctx, database.UpdatePendingWorkspaceBuildAdmissionStatusParams{
+		Status: database.WorkspaceAdmissionStatusCanceled,
+		Reason: workspaceadmission.ReasonStoppedByController,
+		Now:    now,
+		JobID:  latestJob.ID,
+	})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return uuid.NullUUID{}, xerrors.Errorf("cancel pending start admission: %w", err)
+	}
+	return uuid.NullUUID{UUID: latestJob.ID, Valid: true}, nil
 }
 
 // existingStopOperation returns the recorded result of a stop operation. It

@@ -430,6 +430,16 @@ func (o WorkspaceAdmissionStopOperation) RBACObject() rbac.Object {
 	return rbac.ResourceWorkspaceAdmission.WithID(o.OperationID).InOrg(o.OrganizationID)
 }
 
+// RBACObject returns the workspace admission object of a create operation.
+func (o WorkspaceAdmissionCreateOperation) RBACObject() rbac.Object {
+	return rbac.ResourceWorkspaceAdmission.WithID(o.OperationID).InOrg(o.OrganizationID)
+}
+
+// RBACObject returns the workspace admission object of a delete operation.
+func (o WorkspaceAdmissionDeleteOperation) RBACObject() rbac.Object {
+	return rbac.ResourceWorkspaceAdmission.WithID(o.OperationID).InOrg(o.OrganizationID)
+}
+
 // RBACObject returns the workspace admission object of a wake intent.
 func (i WorkspaceAdmissionWakeIntent) RBACObject() rbac.Object {
 	return rbac.ResourceWorkspaceAdmission.WithID(i.WorkspaceID).InOrg(i.OrganizationID)

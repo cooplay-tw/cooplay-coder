@@ -126,6 +126,10 @@ type sqlcQuerier interface {
 	// CountInProgressPrebuilds returns the number of in-progress prebuilds, grouped by preset ID and transition.
 	// Prebuild considered in-progress if it's in the "pending", "starting", "stopping", or "deleting" state.
 	CountInProgressPrebuilds(ctx context.Context) ([]CountInProgressPrebuildsRow, error)
+	// Counts the workspaces created under a grant that are not deleted,
+	// including workspaces whose first build has not run yet. A workspace
+	// counts until its DELETE build succeeded.
+	CountLiveWorkspaceAdmissionCreateOperationsByGrantID(ctx context.Context, grantID string) (int32, error)
 	// Groups OIDC user links by their issuer prefix (the part before "||" in
 	// linked_id) and returns a count for each. Empty linked_ids are reported
 	// with an empty issuer_prefix. Used for analysis before resetting
@@ -1032,8 +1036,14 @@ type sqlcQuerier interface {
 	GetWebpushSubscriptionsByUserID(ctx context.Context, userID uuid.UUID) ([]WebpushSubscription, error)
 	GetWebpushVAPIDKeys(ctx context.Context) (GetWebpushVAPIDKeysRow, error)
 	GetWorkspaceACLByID(ctx context.Context, id uuid.UUID) (GetWorkspaceACLByIDRow, error)
+	GetWorkspaceAdmissionCreateOperationByOperationID(ctx context.Context, operationID uuid.UUID) (WorkspaceAdmissionCreateOperation, error)
+	GetWorkspaceAdmissionCreateOperationByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (WorkspaceAdmissionCreateOperation, error)
+	GetWorkspaceAdmissionDeleteOperationByOperationID(ctx context.Context, operationID uuid.UUID) (WorkspaceAdmissionDeleteOperation, error)
 	GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID(ctx context.Context, arg GetWorkspaceAdmissionEntitlementByUserIDAndTemplateIDParams) (WorkspaceAdmissionEntitlement, error)
 	GetWorkspaceAdmissionEntitlementsByUserID(ctx context.Context, userID uuid.UUID) ([]WorkspaceAdmissionEntitlement, error)
+	// Locks a mirrored grant for the rest of the transaction, so creates and
+	// deletes under the same grant see each other's committed changes.
+	GetWorkspaceAdmissionGrantByIDWithLock(ctx context.Context, id string) (WorkspaceAdmissionGrant, error)
 	// Lists keepalive intents, oldest request first. pending_only limits the list
 	// to intents whose latest request was not acknowledged.
 	GetWorkspaceAdmissionKeepaliveIntents(ctx context.Context, arg GetWorkspaceAdmissionKeepaliveIntentsParams) ([]WorkspaceAdmissionKeepaliveIntent, error)
@@ -1290,6 +1300,8 @@ type sqlcQuerier interface {
 	// on iOS, where the browser may keep the same endpoint with rotated keys.
 	InsertWebpushSubscription(ctx context.Context, arg InsertWebpushSubscriptionParams) (WebpushSubscription, error)
 	InsertWorkspace(ctx context.Context, arg InsertWorkspaceParams) (WorkspaceTable, error)
+	InsertWorkspaceAdmissionCreateOperation(ctx context.Context, arg InsertWorkspaceAdmissionCreateOperationParams) (WorkspaceAdmissionCreateOperation, error)
+	InsertWorkspaceAdmissionDeleteOperation(ctx context.Context, arg InsertWorkspaceAdmissionDeleteOperationParams) (WorkspaceAdmissionDeleteOperation, error)
 	// Returns no rows when the template is not managed by workspace admission.
 	InsertWorkspaceAdmissionEntitlement(ctx context.Context, arg InsertWorkspaceAdmissionEntitlementParams) (WorkspaceAdmissionEntitlement, error)
 	InsertWorkspaceAdmissionStopOperation(ctx context.Context, arg InsertWorkspaceAdmissionStopOperationParams) (WorkspaceAdmissionStopOperation, error)
@@ -1449,6 +1461,8 @@ type sqlcQuerier interface {
 	// provisioner acquired the job.
 	RequeueWorkspaceBuildAdmission(ctx context.Context, arg RequeueWorkspaceBuildAdmissionParams) (WorkspaceBuildAdmission, error)
 	RevokeDBCryptKey(ctx context.Context, activeKeyDigest string) error
+	// Revokes a mirrored grant. Revoking it again keeps the first revocation.
+	RevokeWorkspaceAdmissionGrant(ctx context.Context, arg RevokeWorkspaceAdmissionGrantParams) (WorkspaceAdmissionGrant, error)
 	// Note that this selects from the CTE, not the original table. The CTE is named
 	// the same as the original table to trick sqlc into reusing the existing struct
 	// for the table.
@@ -1816,6 +1830,10 @@ type sqlcQuerier interface {
 	UpsertUserAIProviderKey(ctx context.Context, arg UpsertUserAIProviderKeyParams) (UserAIProviderKey, error)
 	UpsertUserChatDebugLoggingEnabled(ctx context.Context, arg UpsertUserChatDebugLoggingEnabledParams) error
 	UpsertWebpushVAPIDKeys(ctx context.Context, arg UpsertWebpushVAPIDKeysParams) error
+	// Mirrors the scope of a controller grant. The owner and organization of a
+	// grant never change, so a mirror that names others returns no row. A
+	// revocation is final: a later mirror never clears it.
+	UpsertWorkspaceAdmissionGrant(ctx context.Context, arg UpsertWorkspaceAdmissionGrantParams) (WorkspaceAdmissionGrant, error)
 	// Records a keepalive request for a workspace, replacing an earlier request.
 	// requested_at strictly increases so an acknowledgement that names the value
 	// it saw never covers a newer request.

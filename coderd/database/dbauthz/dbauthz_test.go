@@ -4922,6 +4922,54 @@ func (s *MethodTestSuite) TestWorkspaceAdmission() {
 		dbm.EXPECT().GetWorkspaceAdmissionStopOperationByOperationID(gomock.Any(), op.OperationID).Return(op, nil).AnyTimes()
 		check.Args(op.OperationID).Asserts(op, policy.ActionRead).Returns(op)
 	}))
+	s.Run("InsertWorkspaceAdmissionCreateOperation", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		op := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionCreateOperation{})
+		arg := database.InsertWorkspaceAdmissionCreateOperationParams{OperationID: op.OperationID, OrganizationID: op.OrganizationID}
+		dbm.EXPECT().InsertWorkspaceAdmissionCreateOperation(gomock.Any(), arg).Return(op, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission.WithID(op.OperationID).InOrg(op.OrganizationID), policy.ActionCreate).Returns(op)
+	}))
+	s.Run("GetWorkspaceAdmissionCreateOperationByOperationID", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		op := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionCreateOperation{})
+		dbm.EXPECT().GetWorkspaceAdmissionCreateOperationByOperationID(gomock.Any(), op.OperationID).Return(op, nil).AnyTimes()
+		check.Args(op.OperationID).Asserts(op, policy.ActionRead).Returns(op)
+	}))
+	s.Run("GetWorkspaceAdmissionCreateOperationByWorkspaceID", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		op := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionCreateOperation{})
+		dbm.EXPECT().GetWorkspaceAdmissionCreateOperationByWorkspaceID(gomock.Any(), op.WorkspaceID).Return(op, nil).AnyTimes()
+		check.Args(op.WorkspaceID).Asserts(op, policy.ActionRead).Returns(op)
+	}))
+	s.Run("CountLiveWorkspaceAdmissionCreateOperationsByGrantID", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		dbm.EXPECT().CountLiveWorkspaceAdmissionCreateOperationsByGrantID(gomock.Any(), "g-test").Return(int32(2), nil).AnyTimes()
+		check.Args("g-test").Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead).Returns(int32(2))
+	}))
+	s.Run("InsertWorkspaceAdmissionDeleteOperation", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		op := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionDeleteOperation{})
+		arg := database.InsertWorkspaceAdmissionDeleteOperationParams{OperationID: op.OperationID, OrganizationID: op.OrganizationID}
+		dbm.EXPECT().InsertWorkspaceAdmissionDeleteOperation(gomock.Any(), arg).Return(op, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission.WithID(op.OperationID).InOrg(op.OrganizationID), policy.ActionCreate).Returns(op)
+	}))
+	s.Run("GetWorkspaceAdmissionDeleteOperationByOperationID", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		op := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionDeleteOperation{})
+		dbm.EXPECT().GetWorkspaceAdmissionDeleteOperationByOperationID(gomock.Any(), op.OperationID).Return(op, nil).AnyTimes()
+		check.Args(op.OperationID).Asserts(op, policy.ActionRead).Returns(op)
+	}))
+	s.Run("UpsertWorkspaceAdmissionGrant", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		grant := database.WorkspaceAdmissionGrant{ID: "g-test", OwnerID: uuid.New(), OrganizationID: uuid.New(), MaxWorkspaces: 1}
+		arg := database.UpsertWorkspaceAdmissionGrantParams{ID: grant.ID, OwnerID: grant.OwnerID, OrganizationID: grant.OrganizationID, MaxWorkspaces: 1}
+		dbm.EXPECT().UpsertWorkspaceAdmissionGrant(gomock.Any(), arg).Return(grant, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(grant)
+	}))
+	s.Run("RevokeWorkspaceAdmissionGrant", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		grant := database.WorkspaceAdmissionGrant{ID: "g-test", OwnerID: uuid.New(), OrganizationID: uuid.New()}
+		arg := database.RevokeWorkspaceAdmissionGrantParams{ID: grant.ID}
+		dbm.EXPECT().RevokeWorkspaceAdmissionGrant(gomock.Any(), arg).Return(grant, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(grant)
+	}))
+	s.Run("GetWorkspaceAdmissionGrantByIDWithLock", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		grant := database.WorkspaceAdmissionGrant{ID: "g-test", OwnerID: uuid.New(), OrganizationID: uuid.New()}
+		dbm.EXPECT().GetWorkspaceAdmissionGrantByIDWithLock(gomock.Any(), grant.ID).Return(grant, nil).AnyTimes()
+		check.Args(grant.ID).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(grant)
+	}))
 	s.Run("GetWorkspaceAdmissionWorkspaceAgents", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
 		dbm.EXPECT().GetWorkspaceAdmissionWorkspaceAgents(gomock.Any(), uuid.Nil).Return([]database.GetWorkspaceAdmissionWorkspaceAgentsRow{}, nil).AnyTimes()
 		check.Args(uuid.Nil).Asserts(
