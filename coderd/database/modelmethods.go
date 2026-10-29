@@ -430,6 +430,16 @@ func (o WorkspaceAdmissionStopOperation) RBACObject() rbac.Object {
 	return rbac.ResourceWorkspaceAdmission.WithID(o.OperationID).InOrg(o.OrganizationID)
 }
 
+// RBACObject returns the workspace admission object of a wake intent.
+func (i WorkspaceAdmissionWakeIntent) RBACObject() rbac.Object {
+	return rbac.ResourceWorkspaceAdmission.WithID(i.WorkspaceID).InOrg(i.OrganizationID)
+}
+
+// RBACObject returns the workspace admission object of a keepalive intent.
+func (i WorkspaceAdmissionKeepaliveIntent) RBACObject() rbac.Object {
+	return rbac.ResourceWorkspaceAdmission.WithID(i.WorkspaceID).InOrg(i.OrganizationID)
+}
+
 // RBACObject for a workspace build's provisioner state requires Update access of the template.
 func (t GetWorkspaceBuildProvisionerStateByIDRow) RBACObject() rbac.Object {
 	return rbac.ResourceTemplate.WithID(t.TemplateID).

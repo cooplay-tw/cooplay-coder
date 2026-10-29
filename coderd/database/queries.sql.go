@@ -32872,6 +32872,474 @@ func (q *sqlQuerier) ValidateUserIDs(ctx context.Context, userIds []uuid.UUID) (
 	return i, err
 }
 
+const ackWorkspaceAdmissionKeepaliveIntent = `-- name: AckWorkspaceAdmissionKeepaliveIntent :execrows
+UPDATE
+	workspace_admission_keepalive_intents
+SET
+	acked_at = COALESCE(acked_at, $1::timestamptz),
+	acked_until = $2::timestamptz,
+	acked_result = $3::text,
+	updated_at = CASE
+		WHEN acked_at IS NULL THEN GREATEST($1::timestamptz, updated_at + INTERVAL '1 microsecond')
+		ELSE updated_at
+	END
+WHERE
+	workspace_id = $4
+	AND requested_at = $5::timestamptz
+`
+
+type AckWorkspaceAdmissionKeepaliveIntentParams struct {
+	Now         time.Time    `db:"now" json:"now"`
+	Until       sql.NullTime `db:"until" json:"until"`
+	Result      string       `db:"result" json:"result"`
+	WorkspaceID uuid.UUID    `db:"workspace_id" json:"workspace_id"`
+	RequestedAt time.Time    `db:"requested_at" json:"requested_at"`
+}
+
+// Acknowledges the latest keepalive request of a workspace. It only matches
+// when requested_at is the value the controller saw. Repeating an
+// acknowledgement keeps the first acknowledgement time.
+func (q *sqlQuerier) AckWorkspaceAdmissionKeepaliveIntent(ctx context.Context, arg AckWorkspaceAdmissionKeepaliveIntentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, ackWorkspaceAdmissionKeepaliveIntent,
+		arg.Now,
+		arg.Until,
+		arg.Result,
+		arg.WorkspaceID,
+		arg.RequestedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const ackWorkspaceAdmissionWakeIntent = `-- name: AckWorkspaceAdmissionWakeIntent :execrows
+UPDATE
+	workspace_admission_wake_intents
+SET
+	acked_at = COALESCE(acked_at, $1::timestamptz),
+	acked_power_epoch = $2::bigint,
+	acked_result = $3::text,
+	updated_at = CASE
+		WHEN acked_at IS NULL THEN GREATEST($1::timestamptz, updated_at + INTERVAL '1 microsecond')
+		ELSE updated_at
+	END
+WHERE
+	workspace_id = $4
+	AND last_requested_at = $5::timestamptz
+`
+
+type AckWorkspaceAdmissionWakeIntentParams struct {
+	Now             time.Time `db:"now" json:"now"`
+	PowerEpoch      int64     `db:"power_epoch" json:"power_epoch"`
+	Result          string    `db:"result" json:"result"`
+	WorkspaceID     uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	LastRequestedAt time.Time `db:"last_requested_at" json:"last_requested_at"`
+}
+
+// Acknowledges the latest wake request of a workspace. It only matches when
+// last_requested_at is the value the controller saw, so a request recorded
+// while the controller was waking the workspace stays pending. Repeating an
+// acknowledgement keeps the first acknowledgement time.
+func (q *sqlQuerier) AckWorkspaceAdmissionWakeIntent(ctx context.Context, arg AckWorkspaceAdmissionWakeIntentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, ackWorkspaceAdmissionWakeIntent,
+		arg.Now,
+		arg.PowerEpoch,
+		arg.Result,
+		arg.WorkspaceID,
+		arg.LastRequestedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getWorkspaceAdmissionKeepaliveIntents = `-- name: GetWorkspaceAdmissionKeepaliveIntents :many
+SELECT
+	workspace_id, organization_id, requested_by, requested_at, for_seconds, acked_at, acked_until, acked_result, updated_at
+FROM
+	workspace_admission_keepalive_intents
+WHERE
+	NOT $1::boolean
+	OR acked_at IS NULL
+ORDER BY
+	requested_at, workspace_id
+LIMIT
+	$2::int
+`
+
+type GetWorkspaceAdmissionKeepaliveIntentsParams struct {
+	PendingOnly bool  `db:"pending_only" json:"pending_only"`
+	LimitCount  int32 `db:"limit_count" json:"limit_count"`
+}
+
+// Lists keepalive intents, oldest request first. pending_only limits the list
+// to intents whose latest request was not acknowledged.
+func (q *sqlQuerier) GetWorkspaceAdmissionKeepaliveIntents(ctx context.Context, arg GetWorkspaceAdmissionKeepaliveIntentsParams) ([]WorkspaceAdmissionKeepaliveIntent, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceAdmissionKeepaliveIntents, arg.PendingOnly, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkspaceAdmissionKeepaliveIntent
+	for rows.Next() {
+		var i WorkspaceAdmissionKeepaliveIntent
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.OrganizationID,
+			&i.RequestedBy,
+			&i.RequestedAt,
+			&i.ForSeconds,
+			&i.AckedAt,
+			&i.AckedUntil,
+			&i.AckedResult,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspaceAdmissionWakeIntents = `-- name: GetWorkspaceAdmissionWakeIntents :many
+SELECT
+	workspace_id, organization_id, agent_id, source, requested_by, first_requested_at, last_requested_at, request_count, acked_at, acked_power_epoch, acked_result, updated_at
+FROM
+	workspace_admission_wake_intents
+WHERE
+	NOT $1::boolean
+	OR acked_at IS NULL
+ORDER BY
+	first_requested_at, workspace_id
+LIMIT
+	$2::int
+`
+
+type GetWorkspaceAdmissionWakeIntentsParams struct {
+	PendingOnly bool  `db:"pending_only" json:"pending_only"`
+	LimitCount  int32 `db:"limit_count" json:"limit_count"`
+}
+
+// Lists wake intents, oldest request first. pending_only limits the list to
+// intents whose latest request was not acknowledged.
+func (q *sqlQuerier) GetWorkspaceAdmissionWakeIntents(ctx context.Context, arg GetWorkspaceAdmissionWakeIntentsParams) ([]WorkspaceAdmissionWakeIntent, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceAdmissionWakeIntents, arg.PendingOnly, arg.LimitCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkspaceAdmissionWakeIntent
+	for rows.Next() {
+		var i WorkspaceAdmissionWakeIntent
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.OrganizationID,
+			&i.AgentID,
+			&i.Source,
+			&i.RequestedBy,
+			&i.FirstRequestedAt,
+			&i.LastRequestedAt,
+			&i.RequestCount,
+			&i.AckedAt,
+			&i.AckedPowerEpoch,
+			&i.AckedResult,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspaceAdmissionWakeTargetByAgentID = `-- name: GetWorkspaceAdmissionWakeTargetByAgentID :one
+SELECT
+	w.id AS workspace_id,
+	w.organization_id,
+	w.owner_id,
+	w.deleted AS workspace_deleted,
+	(wat.template_id IS NOT NULL)::boolean AS managed,
+	(lb.id = ab.id)::boolean AS agent_in_latest_build,
+	lb.transition AS latest_build_transition,
+	pj.job_status AS latest_job_status,
+	wss.power_state,
+	wa.id, wa.created_at, wa.updated_at, wa.name, wa.first_connected_at, wa.last_connected_at, wa.disconnected_at, wa.resource_id, wa.auth_token, wa.auth_instance_id, wa.architecture, wa.environment_variables, wa.operating_system, wa.instance_metadata, wa.resource_metadata, wa.directory, wa.version, wa.last_connected_replica_id, wa.connection_timeout_seconds, wa.troubleshooting_url, wa.motd_file, wa.lifecycle_state, wa.expanded_directory, wa.logs_length, wa.logs_overflowed, wa.started_at, wa.ready_at, wa.subsystems, wa.display_apps, wa.api_version, wa.display_order, wa.parent_id, wa.api_key_scope, wa.deleted
+FROM
+	workspace_agents wa
+JOIN
+	workspace_resources wr ON wr.id = wa.resource_id
+JOIN
+	workspace_builds ab ON ab.job_id = wr.job_id
+JOIN
+	workspaces w ON w.id = ab.workspace_id
+JOIN
+	workspace_builds lb ON lb.workspace_id = w.id
+	AND lb.build_number = (
+		SELECT
+			MAX(b.build_number)
+		FROM
+			workspace_builds b
+		WHERE
+			b.workspace_id = w.id
+	)
+JOIN
+	provisioner_jobs pj ON pj.id = lb.job_id
+LEFT JOIN
+	workspace_admission_templates wat ON wat.template_id = w.template_id
+LEFT JOIN
+	workspace_admission_workspace_states wss ON wss.workspace_id = w.id
+WHERE
+	wa.id = $1
+`
+
+type GetWorkspaceAdmissionWakeTargetByAgentIDRow struct {
+	WorkspaceID           uuid.UUID            `db:"workspace_id" json:"workspace_id"`
+	OrganizationID        uuid.UUID            `db:"organization_id" json:"organization_id"`
+	OwnerID               uuid.UUID            `db:"owner_id" json:"owner_id"`
+	WorkspaceDeleted      bool                 `db:"workspace_deleted" json:"workspace_deleted"`
+	Managed               bool                 `db:"managed" json:"managed"`
+	AgentInLatestBuild    bool                 `db:"agent_in_latest_build" json:"agent_in_latest_build"`
+	LatestBuildTransition WorkspaceTransition  `db:"latest_build_transition" json:"latest_build_transition"`
+	LatestJobStatus       ProvisionerJobStatus `db:"latest_job_status" json:"latest_job_status"`
+	PowerState            sql.NullString       `db:"power_state" json:"power_state"`
+	WorkspaceAgent        WorkspaceAgent       `db:"workspace_agent" json:"workspace_agent"`
+}
+
+// Returns what the wake intent recorder needs to decide whether a connection
+// to an agent should wake its workspace: whether the template is managed,
+// whether the agent belongs to a succeeded START that is the latest build,
+// the agent connection state and the power state the controller reported.
+func (q *sqlQuerier) GetWorkspaceAdmissionWakeTargetByAgentID(ctx context.Context, agentID uuid.UUID) (GetWorkspaceAdmissionWakeTargetByAgentIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceAdmissionWakeTargetByAgentID, agentID)
+	var i GetWorkspaceAdmissionWakeTargetByAgentIDRow
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.OrganizationID,
+		&i.OwnerID,
+		&i.WorkspaceDeleted,
+		&i.Managed,
+		&i.AgentInLatestBuild,
+		&i.LatestBuildTransition,
+		&i.LatestJobStatus,
+		&i.PowerState,
+		&i.WorkspaceAgent.ID,
+		&i.WorkspaceAgent.CreatedAt,
+		&i.WorkspaceAgent.UpdatedAt,
+		&i.WorkspaceAgent.Name,
+		&i.WorkspaceAgent.FirstConnectedAt,
+		&i.WorkspaceAgent.LastConnectedAt,
+		&i.WorkspaceAgent.DisconnectedAt,
+		&i.WorkspaceAgent.ResourceID,
+		&i.WorkspaceAgent.AuthToken,
+		&i.WorkspaceAgent.AuthInstanceID,
+		&i.WorkspaceAgent.Architecture,
+		&i.WorkspaceAgent.EnvironmentVariables,
+		&i.WorkspaceAgent.OperatingSystem,
+		&i.WorkspaceAgent.InstanceMetadata,
+		&i.WorkspaceAgent.ResourceMetadata,
+		&i.WorkspaceAgent.Directory,
+		&i.WorkspaceAgent.Version,
+		&i.WorkspaceAgent.LastConnectedReplicaID,
+		&i.WorkspaceAgent.ConnectionTimeoutSeconds,
+		&i.WorkspaceAgent.TroubleshootingURL,
+		&i.WorkspaceAgent.MOTDFile,
+		&i.WorkspaceAgent.LifecycleState,
+		&i.WorkspaceAgent.ExpandedDirectory,
+		&i.WorkspaceAgent.LogsLength,
+		&i.WorkspaceAgent.LogsOverflowed,
+		&i.WorkspaceAgent.StartedAt,
+		&i.WorkspaceAgent.ReadyAt,
+		pq.Array(&i.WorkspaceAgent.Subsystems),
+		pq.Array(&i.WorkspaceAgent.DisplayApps),
+		&i.WorkspaceAgent.APIVersion,
+		&i.WorkspaceAgent.DisplayOrder,
+		&i.WorkspaceAgent.ParentID,
+		&i.WorkspaceAgent.APIKeyScope,
+		&i.WorkspaceAgent.Deleted,
+	)
+	return i, err
+}
+
+const upsertWorkspaceAdmissionKeepaliveIntent = `-- name: UpsertWorkspaceAdmissionKeepaliveIntent :one
+INSERT INTO workspace_admission_keepalive_intents (
+	workspace_id,
+	organization_id,
+	requested_by,
+	requested_at,
+	for_seconds,
+	updated_at
+) VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5,
+	$4
+)
+ON CONFLICT (workspace_id) DO UPDATE SET
+	organization_id = EXCLUDED.organization_id,
+	requested_by = EXCLUDED.requested_by,
+	requested_at = GREATEST(
+		EXCLUDED.requested_at,
+		workspace_admission_keepalive_intents.requested_at + INTERVAL '1 microsecond'
+	),
+	for_seconds = EXCLUDED.for_seconds,
+	acked_at = NULL,
+	acked_until = NULL,
+	acked_result = NULL,
+	updated_at = GREATEST(
+		EXCLUDED.updated_at,
+		workspace_admission_keepalive_intents.updated_at + INTERVAL '1 microsecond'
+	)
+RETURNING
+	workspace_id, organization_id, requested_by, requested_at, for_seconds, acked_at, acked_until, acked_result, updated_at
+`
+
+type UpsertWorkspaceAdmissionKeepaliveIntentParams struct {
+	WorkspaceID    uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
+	RequestedBy    uuid.UUID `db:"requested_by" json:"requested_by"`
+	RequestedAt    time.Time `db:"requested_at" json:"requested_at"`
+	ForSeconds     int32     `db:"for_seconds" json:"for_seconds"`
+}
+
+// Records a keepalive request for a workspace, replacing an earlier request.
+// requested_at strictly increases so an acknowledgement that names the value
+// it saw never covers a newer request.
+func (q *sqlQuerier) UpsertWorkspaceAdmissionKeepaliveIntent(ctx context.Context, arg UpsertWorkspaceAdmissionKeepaliveIntentParams) (WorkspaceAdmissionKeepaliveIntent, error) {
+	row := q.db.QueryRowContext(ctx, upsertWorkspaceAdmissionKeepaliveIntent,
+		arg.WorkspaceID,
+		arg.OrganizationID,
+		arg.RequestedBy,
+		arg.RequestedAt,
+		arg.ForSeconds,
+	)
+	var i WorkspaceAdmissionKeepaliveIntent
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.OrganizationID,
+		&i.RequestedBy,
+		&i.RequestedAt,
+		&i.ForSeconds,
+		&i.AckedAt,
+		&i.AckedUntil,
+		&i.AckedResult,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertWorkspaceAdmissionWakeIntent = `-- name: UpsertWorkspaceAdmissionWakeIntent :one
+INSERT INTO workspace_admission_wake_intents (
+	workspace_id,
+	organization_id,
+	agent_id,
+	source,
+	requested_by,
+	first_requested_at,
+	last_requested_at,
+	request_count,
+	updated_at
+) VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5,
+	$6,
+	$7,
+	$8,
+	$7
+)
+ON CONFLICT (workspace_id) DO UPDATE SET
+	organization_id = EXCLUDED.organization_id,
+	agent_id = EXCLUDED.agent_id,
+	source = EXCLUDED.source,
+	requested_by = EXCLUDED.requested_by,
+	first_requested_at = CASE
+		WHEN workspace_admission_wake_intents.acked_at IS NULL THEN workspace_admission_wake_intents.first_requested_at
+		ELSE EXCLUDED.first_requested_at
+	END,
+	last_requested_at = GREATEST(
+		EXCLUDED.last_requested_at,
+		workspace_admission_wake_intents.last_requested_at + INTERVAL '1 microsecond'
+	),
+	request_count = CASE
+		WHEN workspace_admission_wake_intents.acked_at IS NULL THEN LEAST(
+			workspace_admission_wake_intents.request_count::bigint + EXCLUDED.request_count::bigint,
+			2147483647
+		)::integer
+		ELSE EXCLUDED.request_count
+	END,
+	acked_at = NULL,
+	acked_power_epoch = NULL,
+	acked_result = NULL,
+	updated_at = GREATEST(
+		EXCLUDED.updated_at,
+		workspace_admission_wake_intents.updated_at + INTERVAL '1 microsecond'
+	)
+RETURNING
+	workspace_id, organization_id, agent_id, source, requested_by, first_requested_at, last_requested_at, request_count, acked_at, acked_power_epoch, acked_result, updated_at
+`
+
+type UpsertWorkspaceAdmissionWakeIntentParams struct {
+	WorkspaceID      uuid.UUID     `db:"workspace_id" json:"workspace_id"`
+	OrganizationID   uuid.UUID     `db:"organization_id" json:"organization_id"`
+	AgentID          uuid.UUID     `db:"agent_id" json:"agent_id"`
+	Source           string        `db:"source" json:"source"`
+	RequestedBy      uuid.NullUUID `db:"requested_by" json:"requested_by"`
+	FirstRequestedAt time.Time     `db:"first_requested_at" json:"first_requested_at"`
+	LastRequestedAt  time.Time     `db:"last_requested_at" json:"last_requested_at"`
+	RequestCount     int32         `db:"request_count" json:"request_count"`
+}
+
+// Records wake requests for a workspace. The first request after an
+// acknowledgement starts a new pending intent; later requests extend it.
+// last_requested_at strictly increases so an acknowledgement that names the
+// value it saw never covers a newer request.
+func (q *sqlQuerier) UpsertWorkspaceAdmissionWakeIntent(ctx context.Context, arg UpsertWorkspaceAdmissionWakeIntentParams) (WorkspaceAdmissionWakeIntent, error) {
+	row := q.db.QueryRowContext(ctx, upsertWorkspaceAdmissionWakeIntent,
+		arg.WorkspaceID,
+		arg.OrganizationID,
+		arg.AgentID,
+		arg.Source,
+		arg.RequestedBy,
+		arg.FirstRequestedAt,
+		arg.LastRequestedAt,
+		arg.RequestCount,
+	)
+	var i WorkspaceAdmissionWakeIntent
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.OrganizationID,
+		&i.AgentID,
+		&i.Source,
+		&i.RequestedBy,
+		&i.FirstRequestedAt,
+		&i.LastRequestedAt,
+		&i.RequestCount,
+		&i.AckedAt,
+		&i.AckedPowerEpoch,
+		&i.AckedResult,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const deleteWorkspaceAdmissionEntitlementsByUserID = `-- name: DeleteWorkspaceAdmissionEntitlementsByUserID :exec
 DELETE FROM
 	workspace_admission_entitlements
@@ -33154,6 +33622,106 @@ func (q *sqlQuerier) GetWorkspaceAdmissionUsers(ctx context.Context, userID uuid
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.OidcLinkedID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspaceAdmissionWorkspaceAgents = `-- name: GetWorkspaceAdmissionWorkspaceAgents :many
+SELECT
+	lb.workspace_id,
+	wa.id, wa.created_at, wa.updated_at, wa.name, wa.first_connected_at, wa.last_connected_at, wa.disconnected_at, wa.resource_id, wa.auth_token, wa.auth_instance_id, wa.architecture, wa.environment_variables, wa.operating_system, wa.instance_metadata, wa.resource_metadata, wa.directory, wa.version, wa.last_connected_replica_id, wa.connection_timeout_seconds, wa.troubleshooting_url, wa.motd_file, wa.lifecycle_state, wa.expanded_directory, wa.logs_length, wa.logs_overflowed, wa.started_at, wa.ready_at, wa.subsystems, wa.display_apps, wa.api_version, wa.display_order, wa.parent_id, wa.api_key_scope, wa.deleted
+FROM
+	workspaces w
+JOIN
+	workspace_admission_templates wat ON wat.template_id = w.template_id
+JOIN
+	workspace_builds lb ON lb.workspace_id = w.id
+	AND lb.build_number = (
+		SELECT
+			MAX(b.build_number)
+		FROM
+			workspace_builds b
+		WHERE
+			b.workspace_id = w.id
+	)
+JOIN
+	workspace_resources wr ON wr.job_id = lb.job_id
+JOIN
+	workspace_agents wa ON wa.resource_id = wr.id
+WHERE
+	(
+		$1::uuid = '00000000-0000-0000-0000-000000000000'::uuid
+		OR w.id = $1::uuid
+	)
+	AND wa.parent_id IS NULL
+	AND NOT wa.deleted
+ORDER BY
+	lb.workspace_id, wa.display_order, wa.name, wa.id
+`
+
+type GetWorkspaceAdmissionWorkspaceAgentsRow struct {
+	WorkspaceID    uuid.UUID      `db:"workspace_id" json:"workspace_id"`
+	WorkspaceAgent WorkspaceAgent `db:"workspace_agent" json:"workspace_agent"`
+}
+
+// Lists the top-level agents of the latest build of managed workspaces with
+// their connection fields. A zero workspace ID lists the agents of every
+// managed workspace. Reads the database only; agents are never dialed.
+func (q *sqlQuerier) GetWorkspaceAdmissionWorkspaceAgents(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceAdmissionWorkspaceAgentsRow, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceAdmissionWorkspaceAgents, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetWorkspaceAdmissionWorkspaceAgentsRow
+	for rows.Next() {
+		var i GetWorkspaceAdmissionWorkspaceAgentsRow
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.WorkspaceAgent.ID,
+			&i.WorkspaceAgent.CreatedAt,
+			&i.WorkspaceAgent.UpdatedAt,
+			&i.WorkspaceAgent.Name,
+			&i.WorkspaceAgent.FirstConnectedAt,
+			&i.WorkspaceAgent.LastConnectedAt,
+			&i.WorkspaceAgent.DisconnectedAt,
+			&i.WorkspaceAgent.ResourceID,
+			&i.WorkspaceAgent.AuthToken,
+			&i.WorkspaceAgent.AuthInstanceID,
+			&i.WorkspaceAgent.Architecture,
+			&i.WorkspaceAgent.EnvironmentVariables,
+			&i.WorkspaceAgent.OperatingSystem,
+			&i.WorkspaceAgent.InstanceMetadata,
+			&i.WorkspaceAgent.ResourceMetadata,
+			&i.WorkspaceAgent.Directory,
+			&i.WorkspaceAgent.Version,
+			&i.WorkspaceAgent.LastConnectedReplicaID,
+			&i.WorkspaceAgent.ConnectionTimeoutSeconds,
+			&i.WorkspaceAgent.TroubleshootingURL,
+			&i.WorkspaceAgent.MOTDFile,
+			&i.WorkspaceAgent.LifecycleState,
+			&i.WorkspaceAgent.ExpandedDirectory,
+			&i.WorkspaceAgent.LogsLength,
+			&i.WorkspaceAgent.LogsOverflowed,
+			&i.WorkspaceAgent.StartedAt,
+			&i.WorkspaceAgent.ReadyAt,
+			pq.Array(&i.WorkspaceAgent.Subsystems),
+			pq.Array(&i.WorkspaceAgent.DisplayApps),
+			&i.WorkspaceAgent.APIVersion,
+			&i.WorkspaceAgent.DisplayOrder,
+			&i.WorkspaceAgent.ParentID,
+			&i.WorkspaceAgent.APIKeyScope,
+			&i.WorkspaceAgent.Deleted,
 		); err != nil {
 			return nil, err
 		}
@@ -33552,13 +34120,20 @@ func (q *sqlQuerier) GetWorkspaceBuildAdmissionsByBuildIDs(ctx context.Context, 
 
 const getWorkspaceBuildAdmissionsWatermark = `-- name: GetWorkspaceBuildAdmissionsWatermark :one
 SELECT
-	COALESCE(MAX(updated_at), '0001-01-01 00:00:00+00'::timestamptz)::timestamptz AS max_updated_at
-FROM
-	workspace_build_admissions
+	COALESCE(
+		GREATEST(
+			(SELECT MAX(updated_at) FROM workspace_build_admissions),
+			(SELECT MAX(updated_at) FROM workspace_admission_wake_intents),
+			(SELECT MAX(updated_at) FROM workspace_admission_keepalive_intents),
+			(SELECT MAX(updated_at) FROM workspace_admission_workspace_states)
+		),
+		'0001-01-01 00:00:00+00'::timestamptz
+	)::timestamptz AS max_updated_at
 `
 
-// Returns the latest admission update time. The admission service uses it as
-// a change cursor for long polling.
+// Returns the latest update time of admission records, wake and keepalive
+// intents and reported workspace power states. The admission service uses it
+// as a change cursor for long polling.
 func (q *sqlQuerier) GetWorkspaceBuildAdmissionsWatermark(ctx context.Context) (time.Time, error) {
 	row := q.db.QueryRowContext(ctx, getWorkspaceBuildAdmissionsWatermark)
 	var max_updated_at time.Time

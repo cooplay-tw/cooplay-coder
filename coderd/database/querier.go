@@ -12,6 +12,15 @@ import (
 )
 
 type sqlcQuerier interface {
+	// Acknowledges the latest keepalive request of a workspace. It only matches
+	// when requested_at is the value the controller saw. Repeating an
+	// acknowledgement keeps the first acknowledgement time.
+	AckWorkspaceAdmissionKeepaliveIntent(ctx context.Context, arg AckWorkspaceAdmissionKeepaliveIntentParams) (int64, error)
+	// Acknowledges the latest wake request of a workspace. It only matches when
+	// last_requested_at is the value the controller saw, so a request recorded
+	// while the controller was waking the workspace stays pending. Repeating an
+	// acknowledgement keeps the first acknowledgement time.
+	AckWorkspaceAdmissionWakeIntent(ctx context.Context, arg AckWorkspaceAdmissionWakeIntentParams) (int64, error)
 	// Set the lease to expire according to the provided timeout.  If there is
 	// already a lease, an exception is raised.
 	AcquireExternalAuthLinkRefreshLease(ctx context.Context, arg AcquireExternalAuthLinkRefreshLeaseParams) (ExternalAuthLink, error)
@@ -1025,6 +1034,9 @@ type sqlcQuerier interface {
 	GetWorkspaceACLByID(ctx context.Context, id uuid.UUID) (GetWorkspaceACLByIDRow, error)
 	GetWorkspaceAdmissionEntitlementByUserIDAndTemplateID(ctx context.Context, arg GetWorkspaceAdmissionEntitlementByUserIDAndTemplateIDParams) (WorkspaceAdmissionEntitlement, error)
 	GetWorkspaceAdmissionEntitlementsByUserID(ctx context.Context, userID uuid.UUID) ([]WorkspaceAdmissionEntitlement, error)
+	// Lists keepalive intents, oldest request first. pending_only limits the list
+	// to intents whose latest request was not acknowledged.
+	GetWorkspaceAdmissionKeepaliveIntents(ctx context.Context, arg GetWorkspaceAdmissionKeepaliveIntentsParams) ([]WorkspaceAdmissionKeepaliveIntent, error)
 	// Reports whether a provisioner job is a managed START (a workspace START
 	// build whose workspace template is managed by workspace admission) and the
 	// admission state of that job, if any.
@@ -1035,6 +1047,18 @@ type sqlcQuerier interface {
 	// Lists users with their OIDC link for the admission service. A zero user ID
 	// lists every user.
 	GetWorkspaceAdmissionUsers(ctx context.Context, userID uuid.UUID) ([]GetWorkspaceAdmissionUsersRow, error)
+	// Lists wake intents, oldest request first. pending_only limits the list to
+	// intents whose latest request was not acknowledged.
+	GetWorkspaceAdmissionWakeIntents(ctx context.Context, arg GetWorkspaceAdmissionWakeIntentsParams) ([]WorkspaceAdmissionWakeIntent, error)
+	// Returns what the wake intent recorder needs to decide whether a connection
+	// to an agent should wake its workspace: whether the template is managed,
+	// whether the agent belongs to a succeeded START that is the latest build,
+	// the agent connection state and the power state the controller reported.
+	GetWorkspaceAdmissionWakeTargetByAgentID(ctx context.Context, agentID uuid.UUID) (GetWorkspaceAdmissionWakeTargetByAgentIDRow, error)
+	// Lists the top-level agents of the latest build of managed workspaces with
+	// their connection fields. A zero workspace ID lists the agents of every
+	// managed workspace. Reads the database only; agents are never dialed.
+	GetWorkspaceAdmissionWorkspaceAgents(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceAdmissionWorkspaceAgentsRow, error)
 	// Lists workspaces of managed templates with their latest build. A zero
 	// workspace ID lists every managed workspace.
 	GetWorkspaceAdmissionWorkspaces(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceAdmissionWorkspacesRow, error)
@@ -1073,8 +1097,9 @@ type sqlcQuerier interface {
 	// page.
 	GetWorkspaceBuildAdmissionRequests(ctx context.Context, arg GetWorkspaceBuildAdmissionRequestsParams) ([]GetWorkspaceBuildAdmissionRequestsRow, error)
 	GetWorkspaceBuildAdmissionsByBuildIDs(ctx context.Context, buildIds []uuid.UUID) ([]WorkspaceBuildAdmission, error)
-	// Returns the latest admission update time. The admission service uses it as
-	// a change cursor for long polling.
+	// Returns the latest update time of admission records, wake and keepalive
+	// intents and reported workspace power states. The admission service uses it
+	// as a change cursor for long polling.
 	GetWorkspaceBuildAdmissionsWatermark(ctx context.Context) (time.Time, error)
 	GetWorkspaceBuildAgentsByInstanceID(ctx context.Context, authInstanceID string) ([]GetWorkspaceBuildAgentsByInstanceIDRow, error)
 	GetWorkspaceBuildByID(ctx context.Context, id uuid.UUID) (WorkspaceBuild, error)
@@ -1791,11 +1816,20 @@ type sqlcQuerier interface {
 	UpsertUserAIProviderKey(ctx context.Context, arg UpsertUserAIProviderKeyParams) (UserAIProviderKey, error)
 	UpsertUserChatDebugLoggingEnabled(ctx context.Context, arg UpsertUserChatDebugLoggingEnabledParams) error
 	UpsertWebpushVAPIDKeys(ctx context.Context, arg UpsertWebpushVAPIDKeysParams) error
+	// Records a keepalive request for a workspace, replacing an earlier request.
+	// requested_at strictly increases so an acknowledgement that names the value
+	// it saw never covers a newer request.
+	UpsertWorkspaceAdmissionKeepaliveIntent(ctx context.Context, arg UpsertWorkspaceAdmissionKeepaliveIntentParams) (WorkspaceAdmissionKeepaliveIntent, error)
 	// Marks a template as managed by workspace admission. The organization is
 	// copied from the template so callers cannot attach a template to another
 	// organization. Returns no rows when the template does not exist or is
 	// deleted.
 	UpsertWorkspaceAdmissionTemplate(ctx context.Context, arg UpsertWorkspaceAdmissionTemplateParams) (WorkspaceAdmissionTemplate, error)
+	// Records wake requests for a workspace. The first request after an
+	// acknowledgement starts a new pending intent; later requests extend it.
+	// last_requested_at strictly increases so an acknowledgement that names the
+	// value it saw never covers a newer request.
+	UpsertWorkspaceAdmissionWakeIntent(ctx context.Context, arg UpsertWorkspaceAdmissionWakeIntentParams) (WorkspaceAdmissionWakeIntent, error)
 	UpsertWorkspaceAgentContextResource(ctx context.Context, arg UpsertWorkspaceAgentContextResourceParams) (WorkspaceAgentContextResource, error)
 	UpsertWorkspaceAgentContextSnapshot(ctx context.Context, arg UpsertWorkspaceAgentContextSnapshotParams) (WorkspaceAgentContextSnapshot, error)
 	UpsertWorkspaceAgentPortShare(ctx context.Context, arg UpsertWorkspaceAgentPortShareParams) (WorkspaceAgentPortShare, error)

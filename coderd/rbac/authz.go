@@ -92,6 +92,7 @@ const (
 	SubjectTypeExternalAuthCoordinator      SubjectType = "external_auth_coordinator"
 	SubjectTypeWorkspaceAdmission           SubjectType = "workspace_admission"
 	SubjectTypeWorkspaceAdmissionReader     SubjectType = "workspace_admission_reader"
+	SubjectTypeWorkspaceWakeRecorder        SubjectType = "workspace_wake_recorder"
 )
 
 const (

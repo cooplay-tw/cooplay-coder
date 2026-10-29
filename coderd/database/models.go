@@ -6617,6 +6617,35 @@ type Workspace struct {
 	UserACLDisplayInfo      WorkspaceACLDisplayInfo `db:"user_acl_display_info" json:"user_acl_display_info"`
 }
 
+// Workspaces created through the workspace admission service on behalf of their owners, keyed by the controller operation ID for idempotent retries.
+type WorkspaceAdmissionCreateOperation struct {
+	OperationID      uuid.UUID `db:"operation_id" json:"operation_id"`
+	WorkspaceID      uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	WorkspaceBuildID uuid.UUID `db:"workspace_build_id" json:"workspace_build_id"`
+	JobID            uuid.UUID `db:"job_id" json:"job_id"`
+	OrganizationID   uuid.UUID `db:"organization_id" json:"organization_id"`
+	OwnerID          uuid.UUID `db:"owner_id" json:"owner_id"`
+	// Controller capability grant the workspace was created under, if any. Grant IDs are not secrets.
+	GrantID uuid.NullUUID `db:"grant_id" json:"grant_id"`
+	RunID   uuid.NullUUID `db:"run_id" json:"run_id"`
+	// Create source as sent by the controller: kind (employee or agent_grant), grant_id, run_id, harness, initiator_workspace_id and clone_of_workspace_id.
+	Source    json.RawMessage `db:"source" json:"source"`
+	CreatedAt time.Time       `db:"created_at" json:"created_at"`
+}
+
+// DELETE builds created through the workspace admission service, keyed by the controller operation ID for idempotent retries.
+type WorkspaceAdmissionDeleteOperation struct {
+	OperationID      uuid.UUID     `db:"operation_id" json:"operation_id"`
+	WorkspaceID      uuid.UUID     `db:"workspace_id" json:"workspace_id"`
+	WorkspaceBuildID uuid.UUID     `db:"workspace_build_id" json:"workspace_build_id"`
+	JobID            uuid.UUID     `db:"job_id" json:"job_id"`
+	OrganizationID   uuid.UUID     `db:"organization_id" json:"organization_id"`
+	GrantID          uuid.NullUUID `db:"grant_id" json:"grant_id"`
+	// Pending START job that was canceled before it was acquired so the DELETE build could be created.
+	CanceledJobID uuid.NullUUID `db:"canceled_job_id" json:"canceled_job_id"`
+	CreatedAt     time.Time     `db:"created_at" json:"created_at"`
+}
+
 // Profiles a user may request when starting workspaces of a managed template. Checked synchronously when the START build is created.
 type WorkspaceAdmissionEntitlement struct {
 	UserID          uuid.UUID `db:"user_id" json:"user_id"`
@@ -6624,6 +6653,39 @@ type WorkspaceAdmissionEntitlement struct {
 	OrganizationID  uuid.UUID `db:"organization_id" json:"organization_id"`
 	AllowedProfiles []string  `db:"allowed_profiles" json:"allowed_profiles"`
 	UpdatedAt       time.Time `db:"updated_at" json:"updated_at"`
+}
+
+// Scope mirror of controller capability grants (IDs and limits only, never secrets), checked atomically when the controller creates a workspace under a grant.
+type WorkspaceAdmissionGrant struct {
+	ID             uuid.UUID   `db:"id" json:"id"`
+	OwnerID        uuid.UUID   `db:"owner_id" json:"owner_id"`
+	OrganizationID uuid.UUID   `db:"organization_id" json:"organization_id"`
+	TemplateIDs    []uuid.UUID `db:"template_ids" json:"template_ids"`
+	// Workspaces created under the grant must have names starting with this prefix. Empty allows any name.
+	NamePrefix string `db:"name_prefix" json:"name_prefix"`
+	// Backstop limit of live workspaces created under the grant. The controller count is authoritative.
+	MaxWorkspaces int32        `db:"max_workspaces" json:"max_workspaces"`
+	AllowDelete   bool         `db:"allow_delete" json:"allow_delete"`
+	ExpiresAt     time.Time    `db:"expires_at" json:"expires_at"`
+	RevokedAt     sql.NullTime `db:"revoked_at" json:"revoked_at"`
+	CreatedAt     time.Time    `db:"created_at" json:"created_at"`
+	UpdatedAt     time.Time    `db:"updated_at" json:"updated_at"`
+}
+
+// Requests to keep a managed workspace awake. A row is pending until the controller acknowledges its latest request.
+type WorkspaceAdmissionKeepaliveIntent struct {
+	WorkspaceID    uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
+	RequestedBy    uuid.UUID `db:"requested_by" json:"requested_by"`
+	// Latest request. Strictly increases with every recorded request, so an acknowledgement that names it covers exactly the request the controller saw.
+	RequestedAt time.Time `db:"requested_at" json:"requested_at"`
+	// Requested keepalive duration. The controller caps it at its own maximum.
+	ForSeconds int32        `db:"for_seconds" json:"for_seconds"`
+	AckedAt    sql.NullTime `db:"acked_at" json:"acked_at"`
+	// Keepalive end the controller applied, if any.
+	AckedUntil  sql.NullTime   `db:"acked_until" json:"acked_until"`
+	AckedResult sql.NullString `db:"acked_result" json:"acked_result"`
+	UpdatedAt   time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 // STOP builds created through the workspace admission service, keyed by the controller operation ID for idempotent retries.
@@ -6647,6 +6709,49 @@ type WorkspaceAdmissionTemplate struct {
 	ProfileParameter string    `db:"profile_parameter" json:"profile_parameter"`
 	CreatedAt        time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt        time.Time `db:"updated_at" json:"updated_at"`
+}
+
+// Requests to wake a managed workspace, recorded when a client connects to one of its agents. A row is pending until the controller acknowledges its latest request.
+type WorkspaceAdmissionWakeIntent struct {
+	WorkspaceID    uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
+	// Agent the latest request tried to reach. Not a foreign key: the intent outlives agent rows of replaced builds.
+	AgentID uuid.UUID `db:"agent_id" json:"agent_id"`
+	// Client path of the latest request: tailnet (coordinated tunnel), cli (explicit wake), pty (web terminal) or app (workspace app proxy).
+	Source      string        `db:"source" json:"source"`
+	RequestedBy uuid.NullUUID `db:"requested_by" json:"requested_by"`
+	// First request since the last acknowledgement.
+	FirstRequestedAt time.Time `db:"first_requested_at" json:"first_requested_at"`
+	// Latest request. Strictly increases with every recorded request, so an acknowledgement that names it covers exactly the requests the controller saw.
+	LastRequestedAt time.Time `db:"last_requested_at" json:"last_requested_at"`
+	// Requests since the last acknowledgement, including coalesced repeats.
+	RequestCount int32        `db:"request_count" json:"request_count"`
+	AckedAt      sql.NullTime `db:"acked_at" json:"acked_at"`
+	// Controller power epoch that the acknowledgement reported.
+	AckedPowerEpoch sql.NullInt64  `db:"acked_power_epoch" json:"acked_power_epoch"`
+	AckedResult     sql.NullString `db:"acked_result" json:"acked_result"`
+	UpdatedAt       time.Time      `db:"updated_at" json:"updated_at"`
+}
+
+// Power state, runs and facts of managed workspaces as pushed by the controller, for display. The controller is authoritative; a missing row means off or not reported.
+type WorkspaceAdmissionWorkspaceState struct {
+	WorkspaceID    uuid.UUID `db:"workspace_id" json:"workspace_id"`
+	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
+	PowerState     string    `db:"power_state" json:"power_state"`
+	// Controller power epoch of the state. Updates with a lower epoch are rejected; an equal epoch may update runs, job, facts and notices.
+	PowerEpoch int64     `db:"power_epoch" json:"power_epoch"`
+	Generation int64     `db:"generation" json:"generation"`
+	Since      time.Time `db:"since" json:"since"`
+	Reason     string    `db:"reason" json:"reason"`
+	// Time of a pending policy sleep. The workspace page offers a keepalive while it is set.
+	SleepNoticeAt  sql.NullTime          `db:"sleep_notice_at" json:"sleep_notice_at"`
+	KeepaliveUntil sql.NullTime          `db:"keepalive_until" json:"keepalive_until"`
+	Runs           json.RawMessage       `db:"runs" json:"runs"`
+	LastJob        pqtype.NullRawMessage `db:"last_job" json:"last_job"`
+	Git            pqtype.NullRawMessage `db:"git" json:"git"`
+	Pr             pqtype.NullRawMessage `db:"pr" json:"pr"`
+	LastSample     pqtype.NullRawMessage `db:"last_sample" json:"last_sample"`
+	UpdatedAt      time.Time             `db:"updated_at" json:"updated_at"`
 }
 
 type WorkspaceAgent struct {

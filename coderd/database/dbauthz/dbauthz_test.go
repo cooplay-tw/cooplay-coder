@@ -4922,6 +4922,53 @@ func (s *MethodTestSuite) TestWorkspaceAdmission() {
 		dbm.EXPECT().GetWorkspaceAdmissionStopOperationByOperationID(gomock.Any(), op.OperationID).Return(op, nil).AnyTimes()
 		check.Args(op.OperationID).Asserts(op, policy.ActionRead).Returns(op)
 	}))
+	s.Run("GetWorkspaceAdmissionWorkspaceAgents", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		dbm.EXPECT().GetWorkspaceAdmissionWorkspaceAgents(gomock.Any(), uuid.Nil).Return([]database.GetWorkspaceAdmissionWorkspaceAgentsRow{}, nil).AnyTimes()
+		check.Args(uuid.Nil).Asserts(
+			rbac.ResourceWorkspaceAdmission, policy.ActionRead,
+			rbac.ResourceWorkspace, policy.ActionRead,
+		)
+	}))
+	s.Run("GetWorkspaceAdmissionWakeTargetByAgentID", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		id := uuid.New()
+		dbm.EXPECT().GetWorkspaceAdmissionWakeTargetByAgentID(gomock.Any(), id).Return(database.GetWorkspaceAdmissionWakeTargetByAgentIDRow{}, nil).AnyTimes()
+		check.Args(id).Asserts(
+			rbac.ResourceWorkspaceAdmission, policy.ActionRead,
+			rbac.ResourceWorkspace, policy.ActionRead,
+		)
+	}))
+	s.Run("UpsertWorkspaceAdmissionWakeIntent", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		intent := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionWakeIntent{})
+		arg := database.UpsertWorkspaceAdmissionWakeIntentParams{WorkspaceID: intent.WorkspaceID, OrganizationID: intent.OrganizationID, Source: "tailnet", RequestCount: 1}
+		dbm.EXPECT().UpsertWorkspaceAdmissionWakeIntent(gomock.Any(), arg).Return(intent, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission.WithID(intent.WorkspaceID).InOrg(intent.OrganizationID), policy.ActionCreate).Returns(intent)
+	}))
+	s.Run("GetWorkspaceAdmissionWakeIntents", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		arg := database.GetWorkspaceAdmissionWakeIntentsParams{PendingOnly: true, LimitCount: 10}
+		dbm.EXPECT().GetWorkspaceAdmissionWakeIntents(gomock.Any(), arg).Return([]database.WorkspaceAdmissionWakeIntent{}, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead)
+	}))
+	s.Run("AckWorkspaceAdmissionWakeIntent", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		arg := database.AckWorkspaceAdmissionWakeIntentParams{WorkspaceID: uuid.New(), PowerEpoch: 1, Result: "woken"}
+		dbm.EXPECT().AckWorkspaceAdmissionWakeIntent(gomock.Any(), arg).Return(int64(1), nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(int64(1))
+	}))
+	s.Run("UpsertWorkspaceAdmissionKeepaliveIntent", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
+		intent := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionKeepaliveIntent{})
+		arg := database.UpsertWorkspaceAdmissionKeepaliveIntentParams{WorkspaceID: intent.WorkspaceID, OrganizationID: intent.OrganizationID, RequestedBy: intent.RequestedBy, ForSeconds: 7200}
+		dbm.EXPECT().UpsertWorkspaceAdmissionKeepaliveIntent(gomock.Any(), arg).Return(intent, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission.WithID(intent.WorkspaceID).InOrg(intent.OrganizationID), policy.ActionCreate).Returns(intent)
+	}))
+	s.Run("GetWorkspaceAdmissionKeepaliveIntents", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		arg := database.GetWorkspaceAdmissionKeepaliveIntentsParams{PendingOnly: true, LimitCount: 10}
+		dbm.EXPECT().GetWorkspaceAdmissionKeepaliveIntents(gomock.Any(), arg).Return([]database.WorkspaceAdmissionKeepaliveIntent{}, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead)
+	}))
+	s.Run("AckWorkspaceAdmissionKeepaliveIntent", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		arg := database.AckWorkspaceAdmissionKeepaliveIntentParams{WorkspaceID: uuid.New(), Result: "applied"}
+		dbm.EXPECT().AckWorkspaceAdmissionKeepaliveIntent(gomock.Any(), arg).Return(int64(1), nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(int64(1))
+	}))
 }
 
 func (s *MethodTestSuite) TestExtraMethods() {
@@ -8044,6 +8091,44 @@ func TestAsExternalAuthChecker(t *testing.T) {
 			require.Error(t, err, "%s read should be denied", res.Type)
 		}
 	})
+}
+
+func TestAsWorkspaceWakeRecorder(t *testing.T) {
+	t.Parallel()
+
+	ctx := dbauthz.AsWorkspaceWakeRecorder(context.Background())
+	actor, ok := dbauthz.ActorFromContext(ctx)
+	require.True(t, ok, "actor must be present")
+
+	auth := rbac.NewStrictCachingAuthorizer(prometheus.NewRegistry())
+	orgID := uuid.New()
+
+	// It reads admission state and workspaces and creates intent records.
+	for _, action := range []policy.Action{policy.ActionCreate, policy.ActionRead} {
+		err := auth.Authorize(ctx, actor, action, rbac.ResourceWorkspaceAdmission.WithID(uuid.New()).InOrg(orgID))
+		require.NoError(t, err, "workspace admission %s should be allowed", action)
+	}
+	err := auth.Authorize(ctx, actor, policy.ActionRead, rbac.ResourceWorkspace.WithOwner(uuid.NewString()).InOrg(orgID))
+	require.NoError(t, err)
+
+	// It cannot grant, acknowledge or delete admission records.
+	for _, action := range []policy.Action{policy.ActionUpdate, policy.ActionDelete} {
+		err := auth.Authorize(ctx, actor, action, rbac.ResourceWorkspaceAdmission.InOrg(orgID))
+		require.Error(t, err, "workspace admission %s should be denied", action)
+	}
+
+	// It cannot change workspaces or read anything else.
+	for _, action := range []policy.Action{policy.ActionUpdate, policy.ActionSSH, policy.ActionWorkspaceStart, policy.ActionWorkspaceStop, policy.ActionDelete} {
+		err := auth.Authorize(ctx, actor, action, rbac.ResourceWorkspace.WithOwner(uuid.NewString()).InOrg(orgID))
+		require.Error(t, err, "workspace %s should be denied", action)
+	}
+	for _, res := range []rbac.Object{
+		rbac.ResourceProvisionerJobs, rbac.ResourceTemplate, rbac.ResourceUser,
+		rbac.ResourceApiKey, rbac.ResourceOrganization, rbac.ResourceSystem,
+	} {
+		err := auth.Authorize(ctx, actor, policy.ActionRead, res)
+		require.Error(t, err, "%s read should be denied", res.Type)
+	}
 }
 
 func TestAsWorkspaceAdmissionReader(t *testing.T) {

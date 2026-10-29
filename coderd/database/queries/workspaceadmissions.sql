@@ -319,12 +319,19 @@ RETURNING
 	wba.owner_id;
 
 -- name: GetWorkspaceBuildAdmissionsWatermark :one
--- Returns the latest admission update time. The admission service uses it as
--- a change cursor for long polling.
+-- Returns the latest update time of admission records, wake and keepalive
+-- intents and reported workspace power states. The admission service uses it
+-- as a change cursor for long polling.
 SELECT
-	COALESCE(MAX(updated_at), '0001-01-01 00:00:00+00'::timestamptz)::timestamptz AS max_updated_at
-FROM
-	workspace_build_admissions;
+	COALESCE(
+		GREATEST(
+			(SELECT MAX(updated_at) FROM workspace_build_admissions),
+			(SELECT MAX(updated_at) FROM workspace_admission_wake_intents),
+			(SELECT MAX(updated_at) FROM workspace_admission_keepalive_intents),
+			(SELECT MAX(updated_at) FROM workspace_admission_workspace_states)
+		),
+		'0001-01-01 00:00:00+00'::timestamptz
+	)::timestamptz AS max_updated_at;
 
 -- name: GetWorkspaceAdmissionUsers :many
 -- Lists users with their OIDC link for the admission service. A zero user ID
@@ -399,6 +406,41 @@ WHERE
 	OR w.id = @workspace_id::uuid
 ORDER BY
 	w.created_at, w.id;
+
+-- name: GetWorkspaceAdmissionWorkspaceAgents :many
+-- Lists the top-level agents of the latest build of managed workspaces with
+-- their connection fields. A zero workspace ID lists the agents of every
+-- managed workspace. Reads the database only; agents are never dialed.
+SELECT
+	lb.workspace_id,
+	sqlc.embed(wa)
+FROM
+	workspaces w
+JOIN
+	workspace_admission_templates wat ON wat.template_id = w.template_id
+JOIN
+	workspace_builds lb ON lb.workspace_id = w.id
+	AND lb.build_number = (
+		SELECT
+			MAX(b.build_number)
+		FROM
+			workspace_builds b
+		WHERE
+			b.workspace_id = w.id
+	)
+JOIN
+	workspace_resources wr ON wr.job_id = lb.job_id
+JOIN
+	workspace_agents wa ON wa.resource_id = wr.id
+WHERE
+	(
+		@workspace_id::uuid = '00000000-0000-0000-0000-000000000000'::uuid
+		OR w.id = @workspace_id::uuid
+	)
+	AND wa.parent_id IS NULL
+	AND NOT wa.deleted
+ORDER BY
+	lb.workspace_id, wa.display_order, wa.name, wa.id;
 
 -- name: UpdateManagedWorkspaceBuildJobWithCancelByID :execrows
 -- Cancels a workspace build job of a managed template on behalf of the

@@ -939,6 +939,30 @@ var (
 		Scope: rbac.ScopeAll,
 	}.WithCachedASTValue()
 
+	// subjectWorkspaceWakeRecorder records wake and keepalive intents of
+	// managed workspaces for clients whose access to the workspace was
+	// already authorized. It reads the managed template, agent and power
+	// state of a workspace and creates intent records; it cannot grant,
+	// revoke, acknowledge or delete admission records.
+	subjectWorkspaceWakeRecorder = rbac.Subject{
+		Type:         rbac.SubjectTypeWorkspaceWakeRecorder,
+		FriendlyName: "Workspace Wake Recorder",
+		ID:           uuid.Nil.String(),
+		Roles: rbac.Roles([]rbac.Role{
+			{
+				Identifier:  rbac.RoleIdentifier{Name: "workspace-wake-recorder"},
+				DisplayName: "Workspace Wake Recorder",
+				Site: rbac.Permissions(map[string][]policy.Action{
+					rbac.ResourceWorkspaceAdmission.Type: {policy.ActionCreate, policy.ActionRead},
+					rbac.ResourceWorkspace.Type:          {policy.ActionRead},
+				}),
+				User:    []rbac.Permission{},
+				ByOrgID: map[string]rbac.OrgPermissions{},
+			},
+		}),
+		Scope: rbac.ScopeAll,
+	}.WithCachedASTValue()
+
 	// subjectExternalAuthCoordinator is used to check whether a user has configured
 	// external auth providers or not when an admin is creating a workspace for
 	// another user.
@@ -1134,6 +1158,14 @@ func AsWorkspaceAdmission(ctx context.Context) context.Context {
 // succeeded, and only for those build IDs.
 func AsWorkspaceAdmissionReader(ctx context.Context) context.Context {
 	return As(ctx, subjectWorkspaceAdmissionReader)
+}
+
+// AsWorkspaceWakeRecorder returns a context with an actor that can read the
+// managed template, agents and power state of workspaces and record wake and
+// keepalive intents. Use it only after the caller's own access to the
+// workspace was authorized.
+func AsWorkspaceWakeRecorder(ctx context.Context) context.Context {
+	return As(ctx, subjectWorkspaceWakeRecorder)
 }
 
 var AsRemoveActor = rbac.Subject{
@@ -1855,6 +1887,20 @@ func scopedOrgRoleIdentifiers(names []string, orgID uuid.UUID) []rbac.RoleIdenti
 		out[i] = rbac.RoleIdentifier{Name: name, OrganizationID: orgID}
 	}
 	return out
+}
+
+func (q *querier) AckWorkspaceAdmissionKeepaliveIntent(ctx context.Context, arg database.AckWorkspaceAdmissionKeepaliveIntentParams) (int64, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return 0, err
+	}
+	return q.db.AckWorkspaceAdmissionKeepaliveIntent(ctx, arg)
+}
+
+func (q *querier) AckWorkspaceAdmissionWakeIntent(ctx context.Context, arg database.AckWorkspaceAdmissionWakeIntentParams) (int64, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return 0, err
+	}
+	return q.db.AckWorkspaceAdmissionWakeIntent(ctx, arg)
 }
 
 func (q *querier) AcquireExternalAuthLinkRefreshLease(ctx context.Context, arg database.AcquireExternalAuthLinkRefreshLeaseParams) (database.ExternalAuthLink, error) {
@@ -5602,6 +5648,13 @@ func (q *querier) GetWorkspaceAdmissionEntitlementsByUserID(ctx context.Context,
 	return q.db.GetWorkspaceAdmissionEntitlementsByUserID(ctx, userID)
 }
 
+func (q *querier) GetWorkspaceAdmissionKeepaliveIntents(ctx context.Context, arg database.GetWorkspaceAdmissionKeepaliveIntentsParams) ([]database.WorkspaceAdmissionKeepaliveIntent, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceAdmissionKeepaliveIntents(ctx, arg)
+}
+
 func (q *querier) GetWorkspaceAdmissionStateByJobID(ctx context.Context, jobID uuid.UUID) (database.GetWorkspaceAdmissionStateByJobIDRow, error) {
 	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
 		return database.GetWorkspaceAdmissionStateByJobIDRow{}, err
@@ -5637,6 +5690,35 @@ func (q *querier) GetWorkspaceAdmissionUsers(ctx context.Context, userID uuid.UU
 		return nil, err
 	}
 	return q.db.GetWorkspaceAdmissionUsers(ctx, userID)
+}
+
+func (q *querier) GetWorkspaceAdmissionWakeIntents(ctx context.Context, arg database.GetWorkspaceAdmissionWakeIntentsParams) ([]database.WorkspaceAdmissionWakeIntent, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceAdmissionWakeIntents(ctx, arg)
+}
+
+func (q *querier) GetWorkspaceAdmissionWakeTargetByAgentID(ctx context.Context, agentID uuid.UUID) (database.GetWorkspaceAdmissionWakeTargetByAgentIDRow, error) {
+	// The row describes any workspace and its agent, so the caller needs
+	// site-wide workspace read in addition to admission read.
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.GetWorkspaceAdmissionWakeTargetByAgentIDRow{}, err
+	}
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspace); err != nil {
+		return database.GetWorkspaceAdmissionWakeTargetByAgentIDRow{}, err
+	}
+	return q.db.GetWorkspaceAdmissionWakeTargetByAgentID(ctx, agentID)
+}
+
+func (q *querier) GetWorkspaceAdmissionWorkspaceAgents(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceAdmissionWorkspaceAgentsRow, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return nil, err
+	}
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspace); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceAdmissionWorkspaceAgents(ctx, workspaceID)
 }
 
 func (q *querier) GetWorkspaceAdmissionWorkspaces(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceAdmissionWorkspacesRow, error) {
@@ -9636,11 +9718,21 @@ func (q *querier) UpsertWebpushVAPIDKeys(ctx context.Context, arg database.Upser
 	return q.db.UpsertWebpushVAPIDKeys(ctx, arg)
 }
 
+func (q *querier) UpsertWorkspaceAdmissionKeepaliveIntent(ctx context.Context, arg database.UpsertWorkspaceAdmissionKeepaliveIntentParams) (database.WorkspaceAdmissionKeepaliveIntent, error) {
+	obj := rbac.ResourceWorkspaceAdmission.WithID(arg.WorkspaceID).InOrg(arg.OrganizationID)
+	return insert(q.log, q.auth, obj, q.db.UpsertWorkspaceAdmissionKeepaliveIntent)(ctx, arg)
+}
+
 func (q *querier) UpsertWorkspaceAdmissionTemplate(ctx context.Context, arg database.UpsertWorkspaceAdmissionTemplateParams) (database.WorkspaceAdmissionTemplate, error) {
 	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
 		return database.WorkspaceAdmissionTemplate{}, err
 	}
 	return q.db.UpsertWorkspaceAdmissionTemplate(ctx, arg)
+}
+
+func (q *querier) UpsertWorkspaceAdmissionWakeIntent(ctx context.Context, arg database.UpsertWorkspaceAdmissionWakeIntentParams) (database.WorkspaceAdmissionWakeIntent, error) {
+	obj := rbac.ResourceWorkspaceAdmission.WithID(arg.WorkspaceID).InOrg(arg.OrganizationID)
+	return insert(q.log, q.auth, obj, q.db.UpsertWorkspaceAdmissionWakeIntent)(ctx, arg)
 }
 
 func (q *querier) UpsertWorkspaceAgentContextResource(ctx context.Context, arg database.UpsertWorkspaceAgentContextResourceParams) (database.WorkspaceAgentContextResource, error) {

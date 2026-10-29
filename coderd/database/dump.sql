@@ -3805,6 +3805,46 @@ CREATE TABLE webpush_subscriptions (
     endpoint_auth_key text NOT NULL
 );
 
+CREATE TABLE workspace_admission_create_operations (
+    operation_id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
+    workspace_build_id uuid NOT NULL,
+    job_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    owner_id uuid NOT NULL,
+    grant_id uuid,
+    run_id uuid,
+    source jsonb NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    CONSTRAINT workspace_admission_create_operations_grant_check CHECK ((((source ->> 'kind'::text) IS DISTINCT FROM 'agent_grant'::text) OR (grant_id IS NOT NULL))),
+    CONSTRAINT workspace_admission_create_operations_source_check CHECK (
+CASE
+    WHEN (jsonb_typeof(source) = 'object'::text) THEN (COALESCE((source ->> 'kind'::text), ''::text) = ANY (ARRAY['employee'::text, 'agent_grant'::text]))
+    ELSE false
+END)
+);
+
+COMMENT ON TABLE workspace_admission_create_operations IS 'Workspaces created through the workspace admission service on behalf of their owners, keyed by the controller operation ID for idempotent retries.';
+
+COMMENT ON COLUMN workspace_admission_create_operations.grant_id IS 'Controller capability grant the workspace was created under, if any. Grant IDs are not secrets.';
+
+COMMENT ON COLUMN workspace_admission_create_operations.source IS 'Create source as sent by the controller: kind (employee or agent_grant), grant_id, run_id, harness, initiator_workspace_id and clone_of_workspace_id.';
+
+CREATE TABLE workspace_admission_delete_operations (
+    operation_id uuid NOT NULL,
+    workspace_id uuid NOT NULL,
+    workspace_build_id uuid NOT NULL,
+    job_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    grant_id uuid,
+    canceled_job_id uuid,
+    created_at timestamp with time zone NOT NULL
+);
+
+COMMENT ON TABLE workspace_admission_delete_operations IS 'DELETE builds created through the workspace admission service, keyed by the controller operation ID for idempotent retries.';
+
+COMMENT ON COLUMN workspace_admission_delete_operations.canceled_job_id IS 'Pending START job that was canceled before it was acquired so the DELETE build could be created.';
+
 CREATE TABLE workspace_admission_entitlements (
     user_id uuid NOT NULL,
     template_id uuid NOT NULL,
@@ -3814,6 +3854,50 @@ CREATE TABLE workspace_admission_entitlements (
 );
 
 COMMENT ON TABLE workspace_admission_entitlements IS 'Profiles a user may request when starting workspaces of a managed template. Checked synchronously when the START build is created.';
+
+CREATE TABLE workspace_admission_grants (
+    id uuid NOT NULL,
+    owner_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    template_ids uuid[] DEFAULT '{}'::uuid[] NOT NULL,
+    name_prefix text DEFAULT ''::text NOT NULL,
+    max_workspaces integer NOT NULL,
+    allow_delete boolean DEFAULT false NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    revoked_at timestamp with time zone,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT workspace_admission_grants_max_workspaces_check CHECK ((max_workspaces >= 0))
+);
+
+COMMENT ON TABLE workspace_admission_grants IS 'Scope mirror of controller capability grants (IDs and limits only, never secrets), checked atomically when the controller creates a workspace under a grant.';
+
+COMMENT ON COLUMN workspace_admission_grants.name_prefix IS 'Workspaces created under the grant must have names starting with this prefix. Empty allows any name.';
+
+COMMENT ON COLUMN workspace_admission_grants.max_workspaces IS 'Backstop limit of live workspaces created under the grant. The controller count is authoritative.';
+
+CREATE TABLE workspace_admission_keepalive_intents (
+    workspace_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    requested_by uuid NOT NULL,
+    requested_at timestamp with time zone NOT NULL,
+    for_seconds integer NOT NULL,
+    acked_at timestamp with time zone,
+    acked_until timestamp with time zone,
+    acked_result text,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT workspace_admission_keepalive_intents_ack_fields_check CHECK ((((acked_at IS NULL) = (acked_result IS NULL)) AND ((acked_until IS NULL) OR (acked_at IS NOT NULL)))),
+    CONSTRAINT workspace_admission_keepalive_intents_acked_result_check CHECK (((acked_result IS NULL) OR (acked_result = ANY (ARRAY['applied'::text, 'denied'::text])))),
+    CONSTRAINT workspace_admission_keepalive_intents_for_seconds_check CHECK (((for_seconds > 0) AND (for_seconds <= 43200)))
+);
+
+COMMENT ON TABLE workspace_admission_keepalive_intents IS 'Requests to keep a managed workspace awake. A row is pending until the controller acknowledges its latest request.';
+
+COMMENT ON COLUMN workspace_admission_keepalive_intents.requested_at IS 'Latest request. Strictly increases with every recorded request, so an acknowledgement that names it covers exactly the request the controller saw.';
+
+COMMENT ON COLUMN workspace_admission_keepalive_intents.for_seconds IS 'Requested keepalive duration. The controller caps it at its own maximum.';
+
+COMMENT ON COLUMN workspace_admission_keepalive_intents.acked_until IS 'Keepalive end the controller applied, if any.';
 
 CREATE TABLE workspace_admission_stop_operations (
     operation_id uuid NOT NULL,
@@ -3842,6 +3926,74 @@ CREATE TABLE workspace_admission_templates (
 COMMENT ON TABLE workspace_admission_templates IS 'Templates whose START builds require a workspace admission grant before a provisioner may acquire them.';
 
 COMMENT ON COLUMN workspace_admission_templates.profile_parameter IS 'Name of the build parameter whose value selects the resource profile of a START build.';
+
+CREATE TABLE workspace_admission_wake_intents (
+    workspace_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    agent_id uuid NOT NULL,
+    source text NOT NULL,
+    requested_by uuid,
+    first_requested_at timestamp with time zone NOT NULL,
+    last_requested_at timestamp with time zone NOT NULL,
+    request_count integer NOT NULL,
+    acked_at timestamp with time zone,
+    acked_power_epoch bigint,
+    acked_result text,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT workspace_admission_wake_intents_ack_fields_check CHECK ((((acked_at IS NULL) = (acked_power_epoch IS NULL)) AND ((acked_at IS NULL) = (acked_result IS NULL)))),
+    CONSTRAINT workspace_admission_wake_intents_acked_result_check CHECK (((acked_result IS NULL) OR (acked_result = ANY (ARRAY['woken'::text, 'already_running'::text, 'failed'::text, 'ignored'::text])))),
+    CONSTRAINT workspace_admission_wake_intents_request_count_check CHECK ((request_count >= 1)),
+    CONSTRAINT workspace_admission_wake_intents_requested_at_check CHECK ((last_requested_at >= first_requested_at)),
+    CONSTRAINT workspace_admission_wake_intents_source_check CHECK ((source = ANY (ARRAY['tailnet'::text, 'cli'::text, 'pty'::text, 'app'::text])))
+);
+
+COMMENT ON TABLE workspace_admission_wake_intents IS 'Requests to wake a managed workspace, recorded when a client connects to one of its agents. A row is pending until the controller acknowledges its latest request.';
+
+COMMENT ON COLUMN workspace_admission_wake_intents.agent_id IS 'Agent the latest request tried to reach. Not a foreign key: the intent outlives agent rows of replaced builds.';
+
+COMMENT ON COLUMN workspace_admission_wake_intents.source IS 'Client path of the latest request: tailnet (coordinated tunnel), cli (explicit wake), pty (web terminal) or app (workspace app proxy).';
+
+COMMENT ON COLUMN workspace_admission_wake_intents.first_requested_at IS 'First request since the last acknowledgement.';
+
+COMMENT ON COLUMN workspace_admission_wake_intents.last_requested_at IS 'Latest request. Strictly increases with every recorded request, so an acknowledgement that names it covers exactly the requests the controller saw.';
+
+COMMENT ON COLUMN workspace_admission_wake_intents.request_count IS 'Requests since the last acknowledgement, including coalesced repeats.';
+
+COMMENT ON COLUMN workspace_admission_wake_intents.acked_power_epoch IS 'Controller power epoch that the acknowledgement reported.';
+
+CREATE TABLE workspace_admission_workspace_states (
+    workspace_id uuid NOT NULL,
+    organization_id uuid NOT NULL,
+    power_state text NOT NULL,
+    power_epoch bigint NOT NULL,
+    generation bigint NOT NULL,
+    since timestamp with time zone NOT NULL,
+    reason text DEFAULT ''::text NOT NULL,
+    sleep_notice_at timestamp with time zone,
+    keepalive_until timestamp with time zone,
+    runs jsonb DEFAULT '[]'::jsonb NOT NULL,
+    last_job jsonb,
+    git jsonb,
+    pr jsonb,
+    last_sample jsonb,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT workspace_admission_workspace_states_facts_check CHECK ((((last_job IS NULL) OR (jsonb_typeof(last_job) = 'object'::text)) AND ((git IS NULL) OR (jsonb_typeof(git) = 'object'::text)) AND ((pr IS NULL) OR (jsonb_typeof(pr) = 'object'::text)))),
+    CONSTRAINT workspace_admission_workspace_states_generation_check CHECK ((generation >= 0)),
+    CONSTRAINT workspace_admission_workspace_states_last_sample_check CHECK (((last_sample IS NULL) OR (octet_length((last_sample)::text) <= 4096))),
+    CONSTRAINT workspace_admission_workspace_states_power_epoch_check CHECK ((power_epoch >= 0)),
+    CONSTRAINT workspace_admission_workspace_states_power_state_check CHECK ((power_state = ANY (ARRAY['running'::text, 'reduced'::text, 'paused'::text, 'hibernated'::text, 'cold'::text, 'waking'::text, 'sleeping'::text, 'unknown'::text]))),
+    CONSTRAINT workspace_admission_workspace_states_runs_check CHECK (
+CASE
+    WHEN (jsonb_typeof(runs) = 'array'::text) THEN ((jsonb_array_length(runs) <= 20) AND (NOT jsonb_path_exists(runs, '$[*]?(!(@."started_by" == "employee" || @."started_by" == "grant"))'::jsonpath)) AND (NOT jsonb_path_exists(runs, '$[*]?(!(((((@."state" == "running" || @."state" == "waiting_model") || @."state" == "waiting_human") || @."state" == "idle") || @."state" == "done") || @."state" == "failed"))'::jsonpath)))
+    ELSE false
+END)
+);
+
+COMMENT ON TABLE workspace_admission_workspace_states IS 'Power state, runs and facts of managed workspaces as pushed by the controller, for display. The controller is authoritative; a missing row means off or not reported.';
+
+COMMENT ON COLUMN workspace_admission_workspace_states.power_epoch IS 'Controller power epoch of the state. Updates with a lower epoch are rejected; an equal epoch may update runs, job, facts and notices.';
+
+COMMENT ON COLUMN workspace_admission_workspace_states.sleep_notice_at IS 'Time of a pending policy sleep. The workspace page offers a keepalive while it is set.';
 
 CREATE TABLE workspace_agent_context_resources (
     workspace_agent_id uuid NOT NULL,
@@ -4790,8 +4942,29 @@ ALTER TABLE ONLY users
 ALTER TABLE ONLY webpush_subscriptions
     ADD CONSTRAINT webpush_subscriptions_pkey PRIMARY KEY (id);
 
+ALTER TABLE ONLY workspace_admission_create_operations
+    ADD CONSTRAINT workspace_admission_create_operations_pkey PRIMARY KEY (operation_id);
+
+ALTER TABLE ONLY workspace_admission_create_operations
+    ADD CONSTRAINT workspace_admission_create_operations_workspace_build_id_key UNIQUE (workspace_build_id);
+
+ALTER TABLE ONLY workspace_admission_create_operations
+    ADD CONSTRAINT workspace_admission_create_operations_workspace_id_key UNIQUE (workspace_id);
+
+ALTER TABLE ONLY workspace_admission_delete_operations
+    ADD CONSTRAINT workspace_admission_delete_operations_pkey PRIMARY KEY (operation_id);
+
+ALTER TABLE ONLY workspace_admission_delete_operations
+    ADD CONSTRAINT workspace_admission_delete_operations_workspace_build_id_key UNIQUE (workspace_build_id);
+
 ALTER TABLE ONLY workspace_admission_entitlements
     ADD CONSTRAINT workspace_admission_entitlements_pkey PRIMARY KEY (user_id, template_id);
+
+ALTER TABLE ONLY workspace_admission_grants
+    ADD CONSTRAINT workspace_admission_grants_pkey PRIMARY KEY (id);
+
+ALTER TABLE ONLY workspace_admission_keepalive_intents
+    ADD CONSTRAINT workspace_admission_keepalive_intents_pkey PRIMARY KEY (workspace_id);
 
 ALTER TABLE ONLY workspace_admission_stop_operations
     ADD CONSTRAINT workspace_admission_stop_operations_pkey PRIMARY KEY (operation_id);
@@ -4801,6 +4974,12 @@ ALTER TABLE ONLY workspace_admission_stop_operations
 
 ALTER TABLE ONLY workspace_admission_templates
     ADD CONSTRAINT workspace_admission_templates_pkey PRIMARY KEY (template_id);
+
+ALTER TABLE ONLY workspace_admission_wake_intents
+    ADD CONSTRAINT workspace_admission_wake_intents_pkey PRIMARY KEY (workspace_id);
+
+ALTER TABLE ONLY workspace_admission_workspace_states
+    ADD CONSTRAINT workspace_admission_workspace_states_pkey PRIMARY KEY (workspace_id);
 
 ALTER TABLE ONLY workspace_agent_context_resources
     ADD CONSTRAINT workspace_agent_context_resources_pkey PRIMARY KEY (workspace_agent_id, source);
@@ -5203,9 +5382,25 @@ CREATE UNIQUE INDEX users_username_lower_idx ON users USING btree (lower(usernam
 
 CREATE UNIQUE INDEX webpush_subscriptions_user_id_endpoint_idx ON webpush_subscriptions USING btree (user_id, endpoint);
 
+CREATE INDEX workspace_admission_create_operations_grant_id_idx ON workspace_admission_create_operations USING btree (grant_id) WHERE (grant_id IS NOT NULL);
+
+CREATE INDEX workspace_admission_delete_operations_workspace_id_idx ON workspace_admission_delete_operations USING btree (workspace_id);
+
 CREATE INDEX workspace_admission_entitlements_template_id_idx ON workspace_admission_entitlements USING btree (template_id);
 
+CREATE INDEX workspace_admission_grants_owner_id_idx ON workspace_admission_grants USING btree (owner_id);
+
+CREATE INDEX workspace_admission_keepalive_intents_pending_idx ON workspace_admission_keepalive_intents USING btree (requested_at, workspace_id) WHERE (acked_at IS NULL);
+
+CREATE INDEX workspace_admission_keepalive_intents_updated_at_idx ON workspace_admission_keepalive_intents USING btree (updated_at);
+
 CREATE INDEX workspace_admission_stop_operations_workspace_id_idx ON workspace_admission_stop_operations USING btree (workspace_id);
+
+CREATE INDEX workspace_admission_wake_intents_pending_idx ON workspace_admission_wake_intents USING btree (first_requested_at, workspace_id) WHERE (acked_at IS NULL);
+
+CREATE INDEX workspace_admission_wake_intents_updated_at_idx ON workspace_admission_wake_intents USING btree (updated_at);
+
+CREATE INDEX workspace_admission_workspace_states_updated_at_idx ON workspace_admission_workspace_states USING btree (updated_at);
 
 CREATE INDEX workspace_agent_devcontainers_workspace_agent_id ON workspace_agent_devcontainers USING btree (workspace_agent_id);
 
@@ -5742,6 +5937,33 @@ ALTER TABLE ONLY user_status_changes
 ALTER TABLE ONLY webpush_subscriptions
     ADD CONSTRAINT webpush_subscriptions_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY workspace_admission_create_operations
+    ADD CONSTRAINT workspace_admission_create_operations_job_id_fkey FOREIGN KEY (job_id) REFERENCES provisioner_jobs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_create_operations
+    ADD CONSTRAINT workspace_admission_create_operations_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_create_operations
+    ADD CONSTRAINT workspace_admission_create_operations_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_create_operations
+    ADD CONSTRAINT workspace_admission_create_operations_workspace_build_id_fkey FOREIGN KEY (workspace_build_id) REFERENCES workspace_builds(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_create_operations
+    ADD CONSTRAINT workspace_admission_create_operations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_delete_operations
+    ADD CONSTRAINT workspace_admission_delete_operations_job_id_fkey FOREIGN KEY (job_id) REFERENCES provisioner_jobs(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_delete_operations
+    ADD CONSTRAINT workspace_admission_delete_operations_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_delete_operations
+    ADD CONSTRAINT workspace_admission_delete_operations_workspace_build_id_fkey FOREIGN KEY (workspace_build_id) REFERENCES workspace_builds(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_delete_operations
+    ADD CONSTRAINT workspace_admission_delete_operations_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY workspace_admission_entitlements
     ADD CONSTRAINT workspace_admission_entitlements_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
 
@@ -5750,6 +5972,21 @@ ALTER TABLE ONLY workspace_admission_entitlements
 
 ALTER TABLE ONLY workspace_admission_entitlements
     ADD CONSTRAINT workspace_admission_entitlements_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_grants
+    ADD CONSTRAINT workspace_admission_grants_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_grants
+    ADD CONSTRAINT workspace_admission_grants_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_keepalive_intents
+    ADD CONSTRAINT workspace_admission_keepalive_intents_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_keepalive_intents
+    ADD CONSTRAINT workspace_admission_keepalive_intents_requested_by_fkey FOREIGN KEY (requested_by) REFERENCES users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_keepalive_intents
+    ADD CONSTRAINT workspace_admission_keepalive_intents_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY workspace_admission_stop_operations
     ADD CONSTRAINT workspace_admission_stop_operations_job_id_fkey FOREIGN KEY (job_id) REFERENCES provisioner_jobs(id) ON DELETE CASCADE;
@@ -5768,6 +6005,21 @@ ALTER TABLE ONLY workspace_admission_templates
 
 ALTER TABLE ONLY workspace_admission_templates
     ADD CONSTRAINT workspace_admission_templates_template_id_fkey FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_wake_intents
+    ADD CONSTRAINT workspace_admission_wake_intents_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_wake_intents
+    ADD CONSTRAINT workspace_admission_wake_intents_requested_by_fkey FOREIGN KEY (requested_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY workspace_admission_wake_intents
+    ADD CONSTRAINT workspace_admission_wake_intents_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_workspace_states
+    ADD CONSTRAINT workspace_admission_workspace_states_organization_id_fkey FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY workspace_admission_workspace_states
+    ADD CONSTRAINT workspace_admission_workspace_states_workspace_id_fkey FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY workspace_agent_context_resources
     ADD CONSTRAINT workspace_agent_context_resources_workspace_agent_id_fkey FOREIGN KEY (workspace_agent_id) REFERENCES workspace_agents(id) ON DELETE CASCADE;
