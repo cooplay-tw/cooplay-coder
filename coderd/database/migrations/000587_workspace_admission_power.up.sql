@@ -126,10 +126,16 @@ CREATE TABLE workspace_admission_create_operations (
     job_id UUID NOT NULL REFERENCES provisioner_jobs(id) ON DELETE CASCADE,
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    grant_id UUID,
-    run_id UUID,
+    grant_id TEXT,
+    run_id TEXT,
     source JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT workspace_admission_create_operations_grant_id_check CHECK (
+        grant_id IS NULL OR grant_id ~ '^[a-z0-9][a-z0-9_-]{0,63}$'
+    ),
+    CONSTRAINT workspace_admission_create_operations_run_id_check CHECK (
+        run_id IS NULL OR run_id ~ '^[a-z0-9][a-z0-9_-]{0,63}$'
+    ),
     CONSTRAINT workspace_admission_create_operations_source_check CHECK (
         CASE
             WHEN jsonb_typeof(source) = 'object' THEN
@@ -150,7 +156,10 @@ COMMENT ON TABLE workspace_admission_create_operations IS
     'Workspaces created through the workspace admission service on behalf of their owners, keyed by the controller operation ID for idempotent retries.';
 
 COMMENT ON COLUMN workspace_admission_create_operations.grant_id IS
-    'Controller capability grant the workspace was created under, if any. Grant IDs are not secrets.';
+    'Controller capability grant the workspace was created under, if any. Grant IDs are opaque controller identifiers (for example g-<ulid>), not secrets.';
+
+COMMENT ON COLUMN workspace_admission_create_operations.run_id IS
+    'Controller Run that created the workspace, if any. Run IDs are opaque controller identifiers (for example r-<ulid>).';
 
 COMMENT ON COLUMN workspace_admission_create_operations.source IS
     'Create source as sent by the controller: kind (employee or agent_grant), grant_id, run_id, harness, initiator_workspace_id and clone_of_workspace_id.';
@@ -163,9 +172,12 @@ CREATE TABLE workspace_admission_delete_operations (
     workspace_build_id UUID NOT NULL UNIQUE REFERENCES workspace_builds(id) ON DELETE CASCADE,
     job_id UUID NOT NULL REFERENCES provisioner_jobs(id) ON DELETE CASCADE,
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    grant_id UUID,
+    grant_id TEXT,
     canceled_job_id UUID,
-    created_at TIMESTAMPTZ NOT NULL
+    created_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT workspace_admission_delete_operations_grant_id_check CHECK (
+        grant_id IS NULL OR grant_id ~ '^[a-z0-9][a-z0-9_-]{0,63}$'
+    )
 );
 
 CREATE INDEX workspace_admission_delete_operations_workspace_id_idx
@@ -243,7 +255,7 @@ COMMENT ON COLUMN workspace_admission_workspace_states.sleep_notice_at IS
 -- workspace creation so that revocation fails closed. Grant secrets never
 -- reach Coder.
 CREATE TABLE workspace_admission_grants (
-    id UUID PRIMARY KEY,
+    id TEXT PRIMARY KEY,
     owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     template_ids UUID[] NOT NULL DEFAULT '{}',
@@ -254,6 +266,9 @@ CREATE TABLE workspace_admission_grants (
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT workspace_admission_grants_id_check CHECK (
+        id ~ '^[a-z0-9][a-z0-9_-]{0,63}$'
+    ),
     CONSTRAINT workspace_admission_grants_max_workspaces_check CHECK (
         max_workspaces >= 0
     )
@@ -264,6 +279,12 @@ CREATE INDEX workspace_admission_grants_owner_id_idx
 
 COMMENT ON TABLE workspace_admission_grants IS
     'Scope mirror of controller capability grants (IDs and limits only, never secrets), checked atomically when the controller creates a workspace under a grant.';
+
+COMMENT ON COLUMN workspace_admission_grants.id IS
+    'Controller grant ID, an opaque controller identifier (for example g-<ulid>).';
+
+COMMENT ON COLUMN workspace_admission_grants.template_ids IS
+    'Templates the grant may create workspaces from. Empty allows every template the owner is entitled to.';
 
 COMMENT ON COLUMN workspace_admission_grants.name_prefix IS
     'Workspaces created under the grant must have names starting with this prefix. Empty allows any name.';

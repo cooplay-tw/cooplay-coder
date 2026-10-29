@@ -3812,11 +3812,13 @@ CREATE TABLE workspace_admission_create_operations (
     job_id uuid NOT NULL,
     organization_id uuid NOT NULL,
     owner_id uuid NOT NULL,
-    grant_id uuid,
-    run_id uuid,
+    grant_id text,
+    run_id text,
     source jsonb NOT NULL,
     created_at timestamp with time zone NOT NULL,
     CONSTRAINT workspace_admission_create_operations_grant_check CHECK ((((source ->> 'kind'::text) IS DISTINCT FROM 'agent_grant'::text) OR (grant_id IS NOT NULL))),
+    CONSTRAINT workspace_admission_create_operations_grant_id_check CHECK (((grant_id IS NULL) OR (grant_id ~ '^[a-z0-9][a-z0-9_-]{0,63}$'::text))),
+    CONSTRAINT workspace_admission_create_operations_run_id_check CHECK (((run_id IS NULL) OR (run_id ~ '^[a-z0-9][a-z0-9_-]{0,63}$'::text))),
     CONSTRAINT workspace_admission_create_operations_source_check CHECK (
 CASE
     WHEN (jsonb_typeof(source) = 'object'::text) THEN (COALESCE((source ->> 'kind'::text), ''::text) = ANY (ARRAY['employee'::text, 'agent_grant'::text]))
@@ -3826,7 +3828,9 @@ END)
 
 COMMENT ON TABLE workspace_admission_create_operations IS 'Workspaces created through the workspace admission service on behalf of their owners, keyed by the controller operation ID for idempotent retries.';
 
-COMMENT ON COLUMN workspace_admission_create_operations.grant_id IS 'Controller capability grant the workspace was created under, if any. Grant IDs are not secrets.';
+COMMENT ON COLUMN workspace_admission_create_operations.grant_id IS 'Controller capability grant the workspace was created under, if any. Grant IDs are opaque controller identifiers (for example g-<ulid>), not secrets.';
+
+COMMENT ON COLUMN workspace_admission_create_operations.run_id IS 'Controller Run that created the workspace, if any. Run IDs are opaque controller identifiers (for example r-<ulid>).';
 
 COMMENT ON COLUMN workspace_admission_create_operations.source IS 'Create source as sent by the controller: kind (employee or agent_grant), grant_id, run_id, harness, initiator_workspace_id and clone_of_workspace_id.';
 
@@ -3836,9 +3840,10 @@ CREATE TABLE workspace_admission_delete_operations (
     workspace_build_id uuid NOT NULL,
     job_id uuid NOT NULL,
     organization_id uuid NOT NULL,
-    grant_id uuid,
+    grant_id text,
     canceled_job_id uuid,
-    created_at timestamp with time zone NOT NULL
+    created_at timestamp with time zone NOT NULL,
+    CONSTRAINT workspace_admission_delete_operations_grant_id_check CHECK (((grant_id IS NULL) OR (grant_id ~ '^[a-z0-9][a-z0-9_-]{0,63}$'::text)))
 );
 
 COMMENT ON TABLE workspace_admission_delete_operations IS 'DELETE builds created through the workspace admission service, keyed by the controller operation ID for idempotent retries.';
@@ -3856,7 +3861,7 @@ CREATE TABLE workspace_admission_entitlements (
 COMMENT ON TABLE workspace_admission_entitlements IS 'Profiles a user may request when starting workspaces of a managed template. Checked synchronously when the START build is created.';
 
 CREATE TABLE workspace_admission_grants (
-    id uuid NOT NULL,
+    id text NOT NULL,
     owner_id uuid NOT NULL,
     organization_id uuid NOT NULL,
     template_ids uuid[] DEFAULT '{}'::uuid[] NOT NULL,
@@ -3867,10 +3872,15 @@ CREATE TABLE workspace_admission_grants (
     revoked_at timestamp with time zone,
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT workspace_admission_grants_id_check CHECK ((id ~ '^[a-z0-9][a-z0-9_-]{0,63}$'::text)),
     CONSTRAINT workspace_admission_grants_max_workspaces_check CHECK ((max_workspaces >= 0))
 );
 
 COMMENT ON TABLE workspace_admission_grants IS 'Scope mirror of controller capability grants (IDs and limits only, never secrets), checked atomically when the controller creates a workspace under a grant.';
+
+COMMENT ON COLUMN workspace_admission_grants.id IS 'Controller grant ID, an opaque controller identifier (for example g-<ulid>).';
+
+COMMENT ON COLUMN workspace_admission_grants.template_ids IS 'Templates the grant may create workspaces from. Empty allows every template the owner is entitled to.';
 
 COMMENT ON COLUMN workspace_admission_grants.name_prefix IS 'Workspaces created under the grant must have names starting with this prefix. Empty allows any name.';
 

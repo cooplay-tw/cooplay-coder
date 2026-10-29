@@ -73,9 +73,9 @@ SELECT
 	wb.job_id,
 	w.organization_id,
 	w.owner_id,
-	'58700000-0000-4000-8000-000000000003'::uuid,
-	'58700000-0000-4000-8000-000000000004'::uuid,
-	'{"kind": "agent_grant", "grant_id": "58700000-0000-4000-8000-000000000003", "run_id": "58700000-0000-4000-8000-000000000004", "harness": "codex"}'::jsonb,
+	'g-01jbx5870000000000000000gr',
+	'r-01jbx5870000000000000000rn',
+	'{"kind": "agent_grant", "grant_id": "g-01jbx5870000000000000000gr", "run_id": "r-01jbx5870000000000000000rn", "harness": "codex", "initiator_workspace_id": "", "clone_of_workspace_id": ""}'::jsonb,
 	NOW()
 FROM
 	workspace_builds wb
@@ -101,7 +101,7 @@ SELECT
 	wb.id,
 	wb.job_id,
 	w.organization_id,
-	'58700000-0000-4000-8000-000000000003'::uuid,
+	'g-01jbx5870000000000000000gr',
 	NOW()
 FROM
 	workspace_builds wb
@@ -139,7 +139,7 @@ SELECT
 	'idle',
 	NULL,
 	NOW() + INTERVAL '2 hours',
-	'[{"id": "58700000-0000-4000-8000-000000000004", "harness": "codex", "mode": "A", "state": "waiting_human", "waiting_reason": "approval", "started_by": "grant", "grant_id": "58700000-0000-4000-8000-000000000003", "last_event_at": "2026-10-30T00:00:00Z"}]'::jsonb,
+	'[{"id": "r-01jbx5870000000000000000rn", "harness": "codex", "mode": "A", "state": "waiting_human", "waiting_reason": "approval", "started_by": "grant", "grant_id": "g-01jbx5870000000000000000gr", "last_event_at": "2026-10-30T00:00:00Z"}]'::jsonb,
 	'{"name": "test", "state": "done"}'::jsonb,
 	'{"branch": "main"}'::jsonb,
 	'{"number": 1}'::jsonb,
@@ -166,7 +166,7 @@ INSERT INTO workspace_admission_grants (
 	updated_at
 )
 SELECT
-	'58700000-0000-4000-8000-000000000003'::uuid,
+	'g-01jbx5870000000000000000gr',
 	w.owner_id,
 	w.organization_id,
 	ARRAY[w.template_id]::uuid[],

@@ -6625,9 +6625,10 @@ type WorkspaceAdmissionCreateOperation struct {
 	JobID            uuid.UUID `db:"job_id" json:"job_id"`
 	OrganizationID   uuid.UUID `db:"organization_id" json:"organization_id"`
 	OwnerID          uuid.UUID `db:"owner_id" json:"owner_id"`
-	// Controller capability grant the workspace was created under, if any. Grant IDs are not secrets.
-	GrantID uuid.NullUUID `db:"grant_id" json:"grant_id"`
-	RunID   uuid.NullUUID `db:"run_id" json:"run_id"`
+	// Controller capability grant the workspace was created under, if any. Grant IDs are opaque controller identifiers (for example g-<ulid>), not secrets.
+	GrantID sql.NullString `db:"grant_id" json:"grant_id"`
+	// Controller Run that created the workspace, if any. Run IDs are opaque controller identifiers (for example r-<ulid>).
+	RunID sql.NullString `db:"run_id" json:"run_id"`
 	// Create source as sent by the controller: kind (employee or agent_grant), grant_id, run_id, harness, initiator_workspace_id and clone_of_workspace_id.
 	Source    json.RawMessage `db:"source" json:"source"`
 	CreatedAt time.Time       `db:"created_at" json:"created_at"`
@@ -6635,12 +6636,12 @@ type WorkspaceAdmissionCreateOperation struct {
 
 // DELETE builds created through the workspace admission service, keyed by the controller operation ID for idempotent retries.
 type WorkspaceAdmissionDeleteOperation struct {
-	OperationID      uuid.UUID     `db:"operation_id" json:"operation_id"`
-	WorkspaceID      uuid.UUID     `db:"workspace_id" json:"workspace_id"`
-	WorkspaceBuildID uuid.UUID     `db:"workspace_build_id" json:"workspace_build_id"`
-	JobID            uuid.UUID     `db:"job_id" json:"job_id"`
-	OrganizationID   uuid.UUID     `db:"organization_id" json:"organization_id"`
-	GrantID          uuid.NullUUID `db:"grant_id" json:"grant_id"`
+	OperationID      uuid.UUID      `db:"operation_id" json:"operation_id"`
+	WorkspaceID      uuid.UUID      `db:"workspace_id" json:"workspace_id"`
+	WorkspaceBuildID uuid.UUID      `db:"workspace_build_id" json:"workspace_build_id"`
+	JobID            uuid.UUID      `db:"job_id" json:"job_id"`
+	OrganizationID   uuid.UUID      `db:"organization_id" json:"organization_id"`
+	GrantID          sql.NullString `db:"grant_id" json:"grant_id"`
 	// Pending START job that was canceled before it was acquired so the DELETE build could be created.
 	CanceledJobID uuid.NullUUID `db:"canceled_job_id" json:"canceled_job_id"`
 	CreatedAt     time.Time     `db:"created_at" json:"created_at"`
@@ -6657,10 +6658,12 @@ type WorkspaceAdmissionEntitlement struct {
 
 // Scope mirror of controller capability grants (IDs and limits only, never secrets), checked atomically when the controller creates a workspace under a grant.
 type WorkspaceAdmissionGrant struct {
-	ID             uuid.UUID   `db:"id" json:"id"`
-	OwnerID        uuid.UUID   `db:"owner_id" json:"owner_id"`
-	OrganizationID uuid.UUID   `db:"organization_id" json:"organization_id"`
-	TemplateIDs    []uuid.UUID `db:"template_ids" json:"template_ids"`
+	// Controller grant ID, an opaque controller identifier (for example g-<ulid>).
+	ID             string    `db:"id" json:"id"`
+	OwnerID        uuid.UUID `db:"owner_id" json:"owner_id"`
+	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
+	// Templates the grant may create workspaces from. Empty allows every template the owner is entitled to.
+	TemplateIDs []uuid.UUID `db:"template_ids" json:"template_ids"`
 	// Workspaces created under the grant must have names starting with this prefix. Empty allows any name.
 	NamePrefix string `db:"name_prefix" json:"name_prefix"`
 	// Backstop limit of live workspaces created under the grant. The controller count is authoritative.

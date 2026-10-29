@@ -74,7 +74,11 @@ const (
 	CheckUserSkillsNameFormat                                CheckConstraint = "user_skills_name_format"                                   // user_skills
 	CheckUserSkillsNameSize                                  CheckConstraint = "user_skills_name_size"                                     // user_skills
 	CheckWorkspaceAdmissionCreateOperationsGrantCheck        CheckConstraint = "workspace_admission_create_operations_grant_check"         // workspace_admission_create_operations
+	CheckWorkspaceAdmissionCreateOperationsGrantIDCheck      CheckConstraint = "workspace_admission_create_operations_grant_id_check"      // workspace_admission_create_operations
+	CheckWorkspaceAdmissionCreateOperationsRunIDCheck        CheckConstraint = "workspace_admission_create_operations_run_id_check"        // workspace_admission_create_operations
 	CheckWorkspaceAdmissionCreateOperationsSourceCheck       CheckConstraint = "workspace_admission_create_operations_source_check"        // workspace_admission_create_operations
+	CheckWorkspaceAdmissionDeleteOperationsGrantIDCheck      CheckConstraint = "workspace_admission_delete_operations_grant_id_check"      // workspace_admission_delete_operations
+	CheckWorkspaceAdmissionGrantsIDCheck                     CheckConstraint = "workspace_admission_grants_id_check"                       // workspace_admission_grants
 	CheckWorkspaceAdmissionGrantsMaxWorkspacesCheck          CheckConstraint = "workspace_admission_grants_max_workspaces_check"           // workspace_admission_grants
 	CheckWorkspaceAdmissionKeepaliveIntentsAckFieldsCheck    CheckConstraint = "workspace_admission_keepalive_intents_ack_fields_check"    // workspace_admission_keepalive_intents
 	CheckWorkspaceAdmissionKeepaliveIntentsAckedResultCheck  CheckConstraint = "workspace_admission_keepalive_intents_acked_result_check"  // workspace_admission_keepalive_intents
