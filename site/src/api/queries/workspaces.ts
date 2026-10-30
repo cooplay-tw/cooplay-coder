@@ -8,22 +8,23 @@ import type {
 } from "react-query";
 import { API, type DeleteWorkspaceOptions } from "#/api/api";
 import { DetailedError, isApiValidationError } from "#/api/errors";
-import type {
-	CreateWorkspaceRequest,
-	ProvisionerLogLevel,
-	UsageAppName,
-	Workspace,
-	WorkspaceACL,
-	WorkspaceAgent,
-	WorkspaceAgentDevcontainer,
-	WorkspaceAgentListContainersResponse,
-	WorkspaceAgentListeningPortsResponse,
-	WorkspaceAgentLog,
-	WorkspaceBuild,
-	WorkspaceBuildParameter,
-	WorkspaceRole,
-	WorkspacesRequest,
-	WorkspacesResponse,
+import {
+	type CreateWorkspaceRequest,
+	type ProvisionerLogLevel,
+	type UsageAppName,
+	type Workspace,
+	type WorkspaceACL,
+	type WorkspaceAgent,
+	type WorkspaceAgentDevcontainer,
+	type WorkspaceAgentListContainersResponse,
+	type WorkspaceAgentListeningPortsResponse,
+	type WorkspaceAgentLog,
+	type WorkspaceBuild,
+	type WorkspaceBuildParameter,
+	WorkspaceCooplayKeepaliveDefaultSeconds,
+	type WorkspaceRole,
+	type WorkspacesRequest,
+	type WorkspacesResponse,
 } from "#/api/typesGenerated";
 import type { ConnectionStatus } from "#/modules/terminal/types";
 import {
@@ -389,6 +390,43 @@ export const cancelBuild = (workspace: Workspace, queryClient: QueryClient) => {
 		onSuccess: async () => {
 			await queryClient.invalidateQueries({
 				queryKey: workspaceBuildsKey(workspace.id),
+			});
+		},
+	};
+};
+
+export const wakeWorkspace = (
+	workspace: Workspace,
+	queryClient: QueryClient,
+) => {
+	return {
+		mutationFn: (agentId: string) => API.wakeWorkspaceAgent(agentId),
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
+				queryKey: workspaceByOwnerAndNameKey(
+					workspace.owner_name,
+					workspace.name,
+				),
+			});
+		},
+	};
+};
+
+export const keepWorkspaceAwake = (
+	workspace: Workspace,
+	queryClient: QueryClient,
+) => {
+	return {
+		mutationFn: () =>
+			API.keepWorkspaceAwake(workspace.id, {
+				for_seconds: WorkspaceCooplayKeepaliveDefaultSeconds,
+			}),
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
+				queryKey: workspaceByOwnerAndNameKey(
+					workspace.owner_name,
+					workspace.name,
+				),
 			});
 		},
 	};

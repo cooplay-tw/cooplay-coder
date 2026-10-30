@@ -20,6 +20,8 @@ import {
 	WorkspaceBuildProgress,
 } from "./WorkspaceBuildProgress";
 import { WorkspaceDeletedBanner } from "./WorkspaceDeletedBanner";
+import { WorkspacePowerAlert } from "./WorkspacePowerAlert";
+import { WorkspaceRunsPanel } from "./WorkspaceRunsPanel";
 import { WorkspaceTopbar } from "./WorkspaceTopbar";
 
 interface WorkspaceProps {
@@ -185,6 +187,8 @@ export const Workspace: FC<WorkspaceProps> = ({
 
 							<WorkspaceAdmissionAlert build={workspace.latest_build} />
 
+							<WorkspacePowerAlert workspace={workspace} />
+
 							{shouldShowProvisionerAlert && (
 								<ProvisionerStatusAlert
 									matchingProvisioners={
@@ -217,6 +221,10 @@ export const Workspace: FC<WorkspaceProps> = ({
 
 							{shouldShowBuildLogs && (
 								<WorkspaceBuildLogsSection logs={buildLogs} />
+							)}
+
+							{workspace.cooplay && (
+								<WorkspaceRunsPanel cooplay={workspace.cooplay} />
 							)}
 
 							{selectedResource && (

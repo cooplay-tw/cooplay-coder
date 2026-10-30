@@ -70,6 +70,7 @@ import {
 import { AgentAlert } from "#/pages/WorkspacePage/AgentAlert";
 import { AppStatuses } from "#/pages/WorkspacePage/AppStatuses";
 import { cn } from "#/utils/cn";
+import { getWorkspacePowerState, isPowerStateAsleep } from "#/utils/workspace";
 import { AgentApps, organizeAgentApps } from "./AgentApps/AgentApps";
 import { AgentDevcontainerCard } from "./AgentDevcontainerCard";
 import { AgentExternal } from "./AgentExternal";
@@ -177,7 +178,12 @@ export const AgentRow: FC<AgentRowProps> = ({
 	// badge). Script issues are kept out of that styling so a failed script
 	// does not imply a connectivity problem, but they still auto-expand the
 	// logs so the failing script's tab surfaces on its own.
-	const connectivityIssues = getAgentConnectivityIssues(agent);
+	const power = getWorkspacePowerState(workspace);
+	// The agent of a sleeping microVM is disconnected on purpose; the
+	// workspace power alert explains it.
+	const connectivityIssues = isPowerStateAsleep(power)
+		? []
+		: getAgentConnectivityIssues(agent);
 	const hasConnectivityIssues = connectivityIssues.length > 0;
 	const hasWarningConnectivityIssues = connectivityIssues.some(
 		(i) => i.severity === "warning",
@@ -420,7 +426,7 @@ export const AgentRow: FC<AgentRowProps> = ({
 			<header className="flex flex-wrap items-center justify-between gap-4 px-4 pt-4 pl-8 leading-normal md:gap-6 [&:has(+_[role='alert'])]:pb-4">
 				<div className="flex min-w-0 items-center gap-6 text-sm text-content-secondary">
 					<div className="flex min-w-0 w-full items-center gap-4 md:w-auto">
-						<AgentStatus agent={agent} />
+						<AgentStatus agent={agent} power={power} />
 						<span className="block max-w-[260px] overflow-hidden text-ellipsis whitespace-nowrap text-base font-semibold text-content-primary">
 							{agent.name}
 						</span>

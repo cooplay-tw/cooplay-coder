@@ -3,6 +3,7 @@ import type { FC } from "react";
 import type {
 	WorkspaceAgent,
 	WorkspaceAgentDevcontainer,
+	WorkspaceCooplayPowerState,
 } from "#/api/typesGenerated";
 import {
 	HelpPopover,
@@ -18,6 +19,7 @@ import {
 	TooltipTrigger,
 } from "#/components/Tooltip/Tooltip";
 import { cn } from "#/utils/cn";
+import { isPowerStateAsleep, workspacePowerStateText } from "#/utils/workspace";
 import {
 	agentConnectionMessages,
 	agentScriptMessages,
@@ -120,6 +122,11 @@ const StartingLifecycle: FC = () => {
 
 interface AgentStatusProps {
 	agent: WorkspaceAgent;
+	/**
+	 * The power state the platform reports for the microVM of a managed
+	 * workspace. While it is not running, a disconnected agent shows it.
+	 */
+	power?: WorkspaceCooplayPowerState;
 }
 
 interface SubAgentStatusProps {
@@ -243,6 +250,30 @@ const ConnectingStatus: FC = () => {
 	);
 };
 
+const PowerStatus: FC<{ power: WorkspaceCooplayPowerState }> = ({ power }) => {
+	const text = workspacePowerStateText[power];
+	const transitioning = power === "waking" || power === "sleeping";
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<div
+					role="status"
+					aria-label={text}
+					className={cn(
+						statusDotBaseClassName,
+						transitioning
+							? statusDotConnectingClassName
+							: statusDotDisconnectedClassName,
+					)}
+				/>
+			</TooltipTrigger>
+			<TooltipContent side="bottom">
+				{text}. Connecting to the workspace wakes it.
+			</TooltipContent>
+		</Tooltip>
+	);
+};
+
 const TimeoutStatus: FC<AgentStatusProps> = ({ agent }) => (
 	<AgentWarningTooltip
 		ariaLabel="Timeout"
@@ -252,9 +283,12 @@ const TimeoutStatus: FC<AgentStatusProps> = ({ agent }) => (
 	/>
 );
 
-export const AgentStatus: FC<AgentStatusProps> = ({ agent }) => {
+export const AgentStatus: FC<AgentStatusProps> = ({ agent, power }) => {
 	if (agent.status === "connected") {
 		return <ConnectedStatus agent={agent} />;
+	}
+	if (isPowerStateAsleep(power)) {
+		return <PowerStatus power={power} />;
 	}
 	if (agent.status === "disconnected") {
 		return <DisconnectedStatus />;

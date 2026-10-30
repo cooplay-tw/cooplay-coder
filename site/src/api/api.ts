@@ -1400,6 +1400,34 @@ class ApiMethods {
 		return response.data;
 	};
 
+	/**
+	 * Asks the platform to wake the workspace of an agent whose microVM may
+	 * be asleep. It never starts a stopped workspace.
+	 */
+	wakeWorkspaceAgent = async (
+		agentId: string,
+	): Promise<TypesGen.WorkspaceAgentWakeResponse> => {
+		const response = await this.axios.post<TypesGen.WorkspaceAgentWakeResponse>(
+			`/api/v2/workspaceagents/${agentId}/wake`,
+		);
+		return response.data;
+	};
+
+	/**
+	 * Asks the platform to keep a workspace of a managed template awake.
+	 */
+	keepWorkspaceAwake = async (
+		workspaceId: string,
+		req: TypesGen.WorkspaceCooplayKeepaliveRequest,
+	): Promise<TypesGen.WorkspaceCooplayKeepaliveResponse> => {
+		const response =
+			await this.axios.post<TypesGen.WorkspaceCooplayKeepaliveResponse>(
+				`/api/v2/workspaces/${workspaceId}/cooplay/keepalive`,
+				req,
+			);
+		return response.data;
+	};
+
 	updateWorkspaceDormancy = async (
 		workspaceId: string,
 		dormant: boolean,

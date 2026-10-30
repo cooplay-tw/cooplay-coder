@@ -1871,6 +1871,106 @@ export const MockCapacityWaitingWorkspace: TypesGen.Workspace = {
 	},
 };
 
+export const MockWorkspaceCooplayRun: TypesGen.WorkspaceCooplayRun = {
+	id: "r-01jbqs5x7kx0",
+	harness: "claude-code",
+	mode: "A",
+	state: "waiting_human",
+	waiting_reason: "permission",
+	started_by: "grant",
+	grant_id: "g-01jbqs4a2m8n",
+	last_event_at: "2022-05-17T17:39:01.382927298Z",
+};
+
+export const MockWorkspaceCooplay: TypesGen.WorkspaceCooplay = {
+	power: {
+		state: "running",
+		since: "2022-05-17T17:00:00Z",
+		reason: "",
+	},
+	runs: [
+		MockWorkspaceCooplayRun,
+		{
+			...MockWorkspaceCooplayRun,
+			id: "r-01jbqr9c0d4e",
+			harness: "codex",
+			state: "done",
+			waiting_reason: "",
+			started_by: "employee",
+			grant_id: "",
+		},
+	],
+	last_job: {
+		id: "j-01jbqs6t2w1z",
+		name: "unit tests",
+		kind: "exec",
+		argv_summary: "go test ./...",
+		artifacts_path: "/home/dev/work/artifacts/j-01jbqs6t2w1z",
+		run_id: MockWorkspaceCooplayRun.id,
+		started_at: "2022-05-17T17:30:00Z",
+		ended_at: "2022-05-17T17:32:00Z",
+		exit_code: 1,
+	},
+	git: {
+		branch: "feat/sleep-notice",
+		base: "main",
+		dirty: true,
+		uncommitted_files: 3,
+		ahead: 2,
+		behind: 1,
+		merge_conflict: false,
+		reported_at: "2022-05-17T17:35:00Z",
+	},
+	pr: {
+		url: "https://github.com/coder/coder/pull/7",
+		state: "open",
+		ci: "failing",
+		number: 7,
+		reported_at: "2022-05-17T17:35:00Z",
+	},
+	source: {
+		kind: "agent_grant",
+		grant_id: MockWorkspaceCooplayRun.grant_id,
+		run_id: MockWorkspaceCooplayRun.id,
+		harness: "claude-code",
+		initiator_workspace_id: "",
+		clone_of_workspace_id: "",
+		grant_expires_at: "2022-05-18T17:00:00Z",
+	},
+};
+
+// The platform hibernated the microVM of a managed workspace, so its agent
+// is disconnected while the build still runs.
+export const MockHibernatedWorkspace: TypesGen.Workspace = {
+	...MockWorkspace,
+	id: "test-hibernated-workspace",
+	latest_build: {
+		...MockWorkspace.latest_build,
+		resources: [
+			{ ...MockWorkspaceResource, agents: [MockWorkspaceAgentDisconnected] },
+		],
+	},
+	cooplay: {
+		...MockWorkspaceCooplay,
+		power: {
+			state: "hibernated",
+			since: "2022-05-17T18:00:00Z",
+			reason: "idle",
+		},
+	},
+};
+
+// The platform will put a managed workspace to sleep unless someone keeps
+// it awake.
+export const MockSleepNoticeWorkspace: TypesGen.Workspace = {
+	...MockWorkspace,
+	id: "test-sleep-notice-workspace",
+	cooplay: {
+		...MockWorkspaceCooplay,
+		sleep_notice_at: "2022-05-17T18:02:00Z",
+	},
+};
+
 // just over one page of workspaces
 export const MockWorkspacesResponse: TypesGen.WorkspacesResponse = {
 	workspaces: range(1, 27).map((id: number) => ({

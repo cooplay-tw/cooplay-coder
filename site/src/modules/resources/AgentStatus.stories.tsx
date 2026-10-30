@@ -170,3 +170,60 @@ export const Connecting: Story = {
 		},
 	},
 };
+
+export const Hibernated: Story = {
+	args: {
+		agent: { ...MockWorkspaceAgent, status: "disconnected" },
+		power: "hibernated",
+	},
+	play: async () => {
+		const status = screen.getByRole("status", { name: "Hibernated" });
+		await userEvent.hover(status);
+		await waitFor(() =>
+			expect(screen.getByRole("tooltip")).toHaveTextContent(
+				"Connecting to the workspace wakes it.",
+			),
+		);
+	},
+};
+
+export const Waking: Story = {
+	args: {
+		agent: { ...MockWorkspaceAgent, status: "timeout" },
+		power: "waking",
+	},
+	play: async () => {
+		expect(screen.getByRole("status", { name: "Waking" })).toBeInTheDocument();
+		expect(
+			screen.queryByRole("status", { name: "Timeout" }),
+		).not.toBeInTheDocument();
+	},
+};
+
+// An agent that connected again is shown as connected, even if the power
+// state has not caught up yet.
+export const ConnectedWhileHibernated: Story = {
+	args: {
+		agent: {
+			...MockWorkspaceAgent,
+			status: "connected",
+			lifecycle_state: "ready",
+		},
+		power: "hibernated",
+	},
+	play: async () => {
+		expect(screen.getByRole("status", { name: "Ready" })).toBeInTheDocument();
+	},
+};
+
+export const DisconnectedWhileRunning: Story = {
+	args: {
+		agent: { ...MockWorkspaceAgent, status: "disconnected" },
+		power: "running",
+	},
+	play: async () => {
+		expect(
+			screen.getByRole("status", { name: "Disconnected" }),
+		).toBeInTheDocument();
+	},
+};

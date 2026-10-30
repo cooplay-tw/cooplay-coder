@@ -4,8 +4,12 @@ import minMax from "dayjs/plugin/minMax";
 import utc from "dayjs/plugin/utc";
 import {
 	CircleAlertIcon,
+	CircleHelpIcon,
 	HourglassIcon,
+	MoonIcon,
+	PauseIcon,
 	PlayIcon,
+	SnowflakeIcon,
 	SquareIcon,
 } from "lucide-react";
 import semver from "semver";
@@ -165,10 +169,81 @@ type DisplayWorkspaceStatus = {
 	icon: React.ReactNode;
 };
 
+/**
+ * Display names of the power states the platform reports for the microVM of
+ * a managed workspace.
+ */
+export const workspacePowerStateText: Record<
+	TypesGen.WorkspaceCooplayPowerState,
+	string
+> = {
+	running: "Running",
+	reduced: "Running",
+	paused: "Paused",
+	hibernated: "Hibernated",
+	cold: "Cold",
+	waking: "Waking",
+	sleeping: "Sleeping",
+	unknown: "Unknown",
+};
+
+/**
+ * Reports whether the microVM of a workspace in a power state is not
+ * running, so its agents are disconnected on purpose and connecting wakes
+ * it.
+ */
+export const isPowerStateAsleep = (
+	power: TypesGen.WorkspaceCooplayPowerState | undefined,
+): power is TypesGen.WorkspaceCooplayPowerState =>
+	power !== undefined && power !== "running" && power !== "reduced";
+
+/**
+ * Returns the power state the platform reports for a managed workspace. It
+ * only applies while the latest build runs the workspace.
+ */
+export const getWorkspacePowerState = (
+	workspace: TypesGen.Workspace,
+): TypesGen.WorkspaceCooplayPowerState | undefined =>
+	workspace.latest_build.status === "running"
+		? workspace.cooplay?.power?.state
+		: undefined;
+
+const getDisplayPowerStatus = (
+	power: TypesGen.WorkspaceCooplayPowerState,
+): DisplayWorkspaceStatus | undefined => {
+	const text = workspacePowerStateText[power];
+	switch (power) {
+		case "paused":
+			return { type: "inactive", text, icon: <PauseIcon /> };
+		case "hibernated":
+			return { type: "inactive", text, icon: <MoonIcon /> };
+		case "cold":
+			return { type: "inactive", text, icon: <SnowflakeIcon /> };
+		case "waking":
+			return { type: "active", text, icon: <Spinner loading /> };
+		case "sleeping":
+			return { type: "inactive", text, icon: <Spinner loading /> };
+		// The platform cannot tell the state; this is not a failure of the
+		// workspace.
+		case "unknown":
+			return { type: "inactive", text, icon: <CircleHelpIcon /> };
+		default:
+			return undefined;
+	}
+};
+
 export const getDisplayWorkspaceStatus = (
 	workspaceStatus: TypesGen.WorkspaceStatus,
 	provisionerJob?: TypesGen.ProvisionerJob,
+	power?: TypesGen.WorkspaceCooplayPowerState,
 ): DisplayWorkspaceStatus => {
+	const powerStatus =
+		workspaceStatus === "running" && power !== undefined
+			? getDisplayPowerStatus(power)
+			: undefined;
+	if (powerStatus) {
+		return powerStatus;
+	}
 	switch (workspaceStatus) {
 		case undefined:
 			return {

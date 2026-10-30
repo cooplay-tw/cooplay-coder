@@ -40,6 +40,7 @@ export const WorkspaceStatusIndicator: FC<WorkspaceStatusIndicatorProps> = ({
 	let { text, type } = getDisplayWorkspaceStatus(
 		workspace.latest_build.status,
 		workspace.latest_build.job,
+		workspace.cooplay?.power?.state,
 	);
 
 	if (!workspace.health.healthy) {

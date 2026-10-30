@@ -7,9 +7,12 @@ import {
 	findWorkspaceAgent,
 	getDisplayVersionStatus,
 	getDisplayWorkspaceBuildInitiatedBy,
+	getDisplayWorkspaceStatus,
 	getDisplayWorkspaceTemplateName,
 	getMatchingAgentOrFirst,
 	getWorkspaceAgents,
+	getWorkspacePowerState,
+	isPowerStateAsleep,
 	isWorkspaceOn,
 } from "./workspace";
 
@@ -38,6 +41,72 @@ function buildAgent(id: string): TypesGen.WorkspaceAgent {
 }
 
 describe("util > workspace", () => {
+	describe("getDisplayWorkspaceStatus", () => {
+		it.each<
+			[
+				TypesGen.WorkspaceCooplayPowerState,
+				string,
+				ReturnType<typeof getDisplayWorkspaceStatus>["type"],
+			]
+		>([
+			["running", "Running", "success"],
+			["reduced", "Running", "success"],
+			["paused", "Paused", "inactive"],
+			["hibernated", "Hibernated", "inactive"],
+			["cold", "Cold", "inactive"],
+			["waking", "Waking", "active"],
+			["sleeping", "Sleeping", "inactive"],
+			["unknown", "Unknown", "inactive"],
+		])("shows power state %p of a running build as %p", (power, text, type) => {
+			const status = getDisplayWorkspaceStatus("running", undefined, power);
+			expect(status.text).toBe(text);
+			expect(status.type).toBe(type);
+		});
+
+		it("ignores the power state of a build that does not run", () => {
+			expect(
+				getDisplayWorkspaceStatus("stopped", undefined, "hibernated").text,
+			).toBe("Stopped");
+		});
+	});
+
+	describe("isPowerStateAsleep", () => {
+		it.each<[TypesGen.WorkspaceCooplayPowerState | undefined, boolean]>([
+			[undefined, false],
+			["running", false],
+			["reduced", false],
+			["paused", true],
+			["hibernated", true],
+			["cold", true],
+			["waking", true],
+			["sleeping", true],
+			["unknown", true],
+		])("%p is asleep: %p", (power, asleep) => {
+			expect(isPowerStateAsleep(power)).toBe(asleep);
+		});
+	});
+
+	describe("getWorkspacePowerState", () => {
+		it("returns the power state of a running build", () => {
+			expect(getWorkspacePowerState(Mocks.MockHibernatedWorkspace)).toBe(
+				"hibernated",
+			);
+		});
+
+		it("ignores the power state of a stopped build", () => {
+			expect(
+				getWorkspacePowerState({
+					...Mocks.MockStoppedWorkspace,
+					cooplay: Mocks.MockHibernatedWorkspace.cooplay,
+				}),
+			).toBeUndefined();
+		});
+
+		it("is undefined without a reported power state", () => {
+			expect(getWorkspacePowerState(Mocks.MockWorkspace)).toBeUndefined();
+		});
+	});
+
 	describe("isWorkspaceOn", () => {
 		it.each<
 			[TypesGen.WorkspaceTransition, TypesGen.ProvisionerJobStatus, boolean]

@@ -419,6 +419,40 @@ export const CapacityRejected: Story = {
 	},
 };
 
+export const Hibernated: Story = {
+	args: {
+		...Running.args,
+		workspace: Mocks.MockHibernatedWorkspace,
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByRole("heading", { name: "Workspace hibernated" }),
+		).toBeVisible();
+		await expect(canvas.getByRole("button", { name: "Wake" })).toBeVisible();
+		await expect(
+			canvas.getByRole("status", { name: "Hibernated" }),
+		).toBeInTheDocument();
+		await expect(
+			canvas.queryByText("Workspace agent has disconnected"),
+		).not.toBeInTheDocument();
+		await expect(canvas.getByRole("table", { name: "Runs" })).toBeVisible();
+	},
+};
+
+export const SleepNotice: Story = {
+	args: {
+		...Running.args,
+		workspace: Mocks.MockSleepNoticeWorkspace,
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByRole("button", { name: "Keep awake 2 h" }),
+		).toBeVisible();
+	},
+};
+
 export const Starting: Story = {
 	args: {
 		...Running.args,
