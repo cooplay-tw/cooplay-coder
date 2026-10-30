@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/coder/coder/v2/coderd/coderdtest"
@@ -40,11 +41,22 @@ func TestManagedTemplateSchedule(t *testing.T) {
 	})
 	require.Equal(t, time.Hour.Milliseconds(), template.DefaultTTLMillis)
 
-	// Without admission, the template default gives builds a deadline.
+	// completedBuild waits for the build job and then reads the build again:
+	// the build in the response that first reports the job as completed can
+	// predate the commit that set its deadline.
+	completedBuild := func(buildID uuid.UUID) codersdk.WorkspaceBuild {
+		t.Helper()
+		coderdtest.AwaitWorkspaceBuildJobCompleted(t, member, buildID)
+		build, err := member.WorkspaceBuild(ctx, buildID)
+		require.NoError(t, err)
+		return build
+	}
+
+	// Without admission, the workspace TTL gives builds a deadline.
 	unmanaged := coderdtest.CreateWorkspace(t, member, template.ID, func(req *codersdk.CreateWorkspaceRequest) {
 		req.RichParameterValues = admissiontest.Profile("small")
 	})
-	build := coderdtest.AwaitWorkspaceBuildJobCompleted(t, member, unmanaged.LatestBuild.ID)
+	build := completedBuild(unmanaged.LatestBuild.ID)
 	require.False(t, build.Deadline.IsZero())
 
 	admissiontest.Manage(t, db, template.ID, admissiontest.ProfileParameter)
@@ -56,7 +68,7 @@ func TestManagedTemplateSchedule(t *testing.T) {
 		req.TTLMillis = ptr.Ref((2 * time.Hour).Milliseconds())
 	})
 	admissiontest.Grant(t, db, ps, workspace.LatestBuild.Job.ID)
-	build = coderdtest.AwaitWorkspaceBuildJobCompleted(t, member, workspace.LatestBuild.ID)
+	build = completedBuild(workspace.LatestBuild.ID)
 	require.Equal(t, codersdk.WorkspaceStatusRunning, build.Status)
 	require.True(t, build.Deadline.IsZero(), "deadline %v", build.Deadline)
 
@@ -82,6 +94,6 @@ func TestManagedTemplateSchedule(t *testing.T) {
 	})
 	require.NoError(t, err)
 	admissiontest.Grant(t, db, ps, start.Job.ID)
-	build = coderdtest.AwaitWorkspaceBuildJobCompleted(t, member, start.ID)
+	build = completedBuild(start.ID)
 	require.True(t, build.Deadline.IsZero(), "deadline %v", build.Deadline)
 }
