@@ -15,6 +15,7 @@ import (
 
 	"github.com/coder/coder/v2/coderd/coderdtest"
 	"github.com/coder/coder/v2/coderd/database"
+	"github.com/coder/coder/v2/coderd/database/dbtime"
 	"github.com/coder/coder/v2/coderd/util/ptr"
 	"github.com/coder/coder/v2/coderd/workspaceadmission/admissionapi"
 	"github.com/coder/coder/v2/coderd/workspaceadmission/admissiontest"
@@ -217,6 +218,35 @@ func TestCreateWorkspace(t *testing.T) {
 		var created admissionapi.CreateWorkspaceResponse
 		require.Equal(t, http.StatusCreated, env.call(ctx, t, http.MethodPost, "/v1/workspaces", body, &created))
 		require.Equal(t, user.ID, created.Admission.OwnerID)
+	})
+
+	// Dormant, deleted and system owners are refused even when they are
+	// entitled.
+	t.Run("InactiveOwners", func(t *testing.T) {
+		t.Parallel()
+		ctx := testutil.Context(t, testutil.WaitSuperLong)
+		var errResp admissionapi.ErrorResponse
+
+		_, dormant := coderdtest.CreateAnotherUser(t, env.owner, env.orgID)
+		_, err := env.db.UpdateUserStatus(ctx, database.UpdateUserStatusParams{
+			ID:        dormant.ID,
+			Status:    database.UserStatusDormant,
+			UpdatedAt: dbtime.Now(),
+		})
+		require.NoError(t, err)
+		_, deleted := coderdtest.CreateAnotherUser(t, env.owner, env.orgID)
+		require.NoError(t, env.owner.DeleteUser(ctx, deleted.ID))
+		for name, ownerID := range map[string]uuid.UUID{
+			"dormant": dormant.ID,
+			"deleted": deleted.ID,
+			"system":  database.PrebuildsSystemUserID,
+		} {
+			admissiontest.Entitle(t, env.db, ownerID, env.template.ID, "small")
+			body := env.createBody("inactive-" + name)
+			body.OwnerID = ownerID
+			require.Equal(t, http.StatusForbidden, env.call(ctx, t, http.MethodPost, "/v1/workspaces", body, &errResp), name)
+			require.Equal(t, admissionapi.CodeOwnerInactive, errResp.Code, name)
+		}
 	})
 
 	t.Run("InvalidRequests", func(t *testing.T) {
