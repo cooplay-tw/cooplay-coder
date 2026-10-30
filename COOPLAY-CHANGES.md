@@ -126,9 +126,11 @@ Modified areas:
 - CLI (`cli/exp_agent_sleepwake.go`, `cli/root.go`): hidden experimental
   commands `coder exp agent prepare-sleep` and `coder exp agent wake`, with
   `--socket-path` / `CODER_AGENT_SOCKET_PATH` like `coder exp sync`.
-- Client sessions (`agent/clientsessions.go`, `agent/agentsocket`,
+- Client sessions (`agent/clientsessions.go`, `agent/agent.go`,
+  `agent/agentsocket`, `agent/agentssh/agentssh.go`,
   `agent/agentssh/portforwardcount.go`, `tailnet/forwardcount.go`,
-  `cli/exp_agent_sleepwake.go`): a `GetSessions` RPC on the agent socket
+  `tailnet/conn.go`, `cli/exp_agent_sleepwake.go`, `cli/testdata`): a
+  `GetSessions` RPC on the agent socket
   (`proto/agentsocket.proto`, regenerated code, `SessionReporter` /
   `WithSessionReporter`) returns the open SSH sessions by app name, the
   connected reconnecting PTYs and the open port-forwarded connections, and
