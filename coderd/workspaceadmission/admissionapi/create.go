@@ -374,26 +374,25 @@ func (*Server) existingCreateOperation(ctx context.Context, db database.Store, r
 }
 
 // writeCreateError answers a failed create. A create that lost a race
-// against the same operation answers with the original workspace.
+// against a concurrent request with the same operation answers with the
+// original workspace, whatever made it fail: a unique key, or the grant
+// limit that the other request used up while this one waited for the grant
+// row lock.
 func (s *Server) writeCreateError(ctx context.Context, rw http.ResponseWriter, req createRequest, err error) {
-	raced := errors.Is(err, errOperationExists) ||
-		database.IsUniqueViolation(err, database.UniqueWorkspaceAdmissionCreateOperationsPkey, database.UniqueWorkspacesOwnerIDLowerIndex)
-	if !raced {
-		if responder, ok := httperror.IsResponder(err); ok {
-			status, _ := responder.Response()
-			raced = status == http.StatusConflict
-		}
+	resp, done, lookupErr := s.existingCreateOperation(ctx, s.db, req)
+	if done {
+		httpapi.Write(ctx, rw, http.StatusOK, resp)
+		return
 	}
-	if raced {
-		resp, done, lookupErr := s.existingCreateOperation(ctx, s.db, req)
-		if lookupErr != nil {
+	if lookupErr != nil {
+		var ae *apiError
+		if errors.As(lookupErr, &ae) {
+			// The operation created another workspace.
 			s.writeErr(ctx, rw, lookupErr)
 			return
 		}
-		if done {
-			httpapi.Write(ctx, rw, http.StatusOK, resp)
-			return
-		}
+		s.logger.Warn(ctx, "look up create operation after a failed create",
+			slog.F("operation_id", req.body.OperationID), slog.Error(lookupErr))
 	}
 	s.writeErr(ctx, rw, createError(err))
 }

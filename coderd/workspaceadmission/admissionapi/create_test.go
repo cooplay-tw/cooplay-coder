@@ -486,6 +486,43 @@ func TestCreateWorkspaceConcurrent(t *testing.T) {
 			require.Equal(t, ids[0], id)
 		}
 	})
+
+	// Retries of one operation that wait for the grant row lock while the
+	// first request uses up the grant answer with its workspace, not with
+	// grant_quota.
+	t.Run("SameOperationUnderGrant", func(t *testing.T) {
+		t.Parallel()
+		ctx := testutil.Context(t, testutil.WaitSuperLong)
+		const grantID = "g-01jbx5870000000000000000c2"
+		mirror := env.grantBody(grantID)
+		mirror.MaxWorkspaces = 1
+		env.putGrant(ctx, t, mirror)
+
+		same := env.underGrant(grantID, "agent-same-op")
+		ids := make([]uuid.UUID, n)
+		statuses := make([]int, n)
+		var wg sync.WaitGroup
+		for i := range n {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				var resp admissionapi.CreateWorkspaceResponse
+				statuses[i] = env.call(ctx, t, http.MethodPost, "/v1/workspaces", same, &resp)
+				ids[i] = resp.WorkspaceID
+			}()
+		}
+		wg.Wait()
+		sort.Ints(statuses)
+		require.Equal(t, []int{http.StatusOK, http.StatusOK, http.StatusOK, http.StatusCreated}, statuses)
+		for _, id := range ids {
+			require.Equal(t, ids[0], id)
+		}
+
+		// Another operation finds the grant used up.
+		var errResp admissionapi.ErrorResponse
+		require.Equal(t, http.StatusForbidden, env.call(ctx, t, http.MethodPost, "/v1/workspaces", env.underGrant(grantID, "agent-other-op"), &errResp))
+		require.Equal(t, admissionapi.CodeGrantQuota, errResp.Code)
+	})
 }
 
 func TestDeleteWorkspace(t *testing.T) {
