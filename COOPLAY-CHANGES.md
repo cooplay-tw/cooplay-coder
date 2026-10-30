@@ -76,6 +76,9 @@ Modified areas:
 - Test infrastructure (`coderd/database/dbtestutil`):
   `CODER_TEST_POSTGRES_PORT` selects the port of the shared test Postgres
   server so tests never use an unrelated server on port 5432.
+- Tests (`coderd/autobuild`, `coderd/workspaceadmission/admissiontest`):
+  autostart of a managed template waits for admission, and a shared helper
+  creates managed templates with a profile parameter for admission tests.
 - Generated API types and documentation that follow from the changes above.
 
 ## Agent sleep and wake
@@ -236,6 +239,8 @@ Modified areas:
   state, a power alert offers a Wake button and, while a sleep notice is
   pending, a "Keep awake 2 h" button, and a Runs panel shows the Runs,
   last job, git and pull request facts and the creating Run and grant.
+  Stories and fixtures (`site/src/testHelpers/entities.ts`) cover each
+  power state.
 - Controller user API route (`coderd/cooplay_devws_proxy.go`,
   `coderd/coderd.go`, `codersdk/deployment.go`, `cli/server_admission.go`):
   with the hidden server option `--workspace-admission-controller-url`
@@ -261,4 +266,7 @@ Modified areas:
   the template; `PUT /v1/workspaces/{workspace_id}/state` stores the power
   state of a workspace compare-and-set on its power epoch and
   `DELETE /v1/workspaces/{workspace_id}/state` reports it as off.
-- Generated API types and documentation that follow from the changes above.
+- Generated API types and documentation that follow from the changes above
+  (`coderd/apidoc`, `docs/reference/api`, `site/src/api/typesGenerated.ts`),
+  including the metric list (`docs/admin/integrations/prometheus.md`,
+  `scripts/metricsdocgen/generated_metrics`).
