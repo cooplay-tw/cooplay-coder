@@ -20,8 +20,12 @@ import (
 )
 
 // validateWorkspaceAdmission fails startup early when the admission listener
-// is enabled without a valid token hash file.
+// is enabled without a valid token hash file, or when the controller URL of
+// the devws route is not a usable base URL.
 func validateWorkspaceAdmission(vals *codersdk.DeploymentValues) error {
+	if err := coderd.ValidateCooplayDevwsControllerURL(vals.WorkspaceAdmission.ControllerURL.Value()); err != nil {
+		return xerrors.Errorf("invalid workspace admission controller URL: %w", err)
+	}
 	if vals.WorkspaceAdmission.ListenAddress.String() == "" {
 		return nil
 	}

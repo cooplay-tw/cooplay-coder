@@ -30739,6 +30739,14 @@ const docTemplate = `{
         "codersdk.WorkspaceAdmissionConfig": {
             "type": "object",
             "properties": {
+                "controller_url": {
+                    "description": "ControllerURL is the base URL of the controller user API that coderd\nserves under /api/v2/cooplay/devws. Empty disables the route.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/serpent.URL"
+                        }
+                    ]
+                },
                 "listen_address": {
                     "type": "string"
                 },

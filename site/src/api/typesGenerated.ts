@@ -11026,6 +11026,11 @@ export interface WorkspaceACL {
 export interface WorkspaceAdmissionConfig {
 	readonly listen_address: string;
 	readonly token_hash_file: string;
+	/**
+	 * ControllerURL is the base URL of the controller user API that coderd
+	 * serves under /api/v2/cooplay/devws. Empty disables the route.
+	 */
+	readonly controller_url: string;
 }
 
 // From codersdk/workspaceagents.go

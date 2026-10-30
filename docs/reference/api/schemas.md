@@ -7972,6 +7972,19 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
     "wgtunnel_host": "string",
     "wildcard_access_url": "string",
     "workspace_admission": {
+      "controller_url": {
+        "forceQuery": true,
+        "fragment": "string",
+        "host": "string",
+        "omitHost": true,
+        "opaque": "string",
+        "path": "string",
+        "rawFragment": "string",
+        "rawPath": "string",
+        "rawQuery": "string",
+        "scheme": "string",
+        "user": {}
+      },
       "listen_address": "string",
       "token_hash_file": "string"
     },
@@ -8604,6 +8617,19 @@ CreateWorkspaceRequest provides options for creating a new workspace. Only one o
   "wgtunnel_host": "string",
   "wildcard_access_url": "string",
   "workspace_admission": {
+    "controller_url": {
+      "forceQuery": true,
+      "fragment": "string",
+      "host": "string",
+      "omitHost": true,
+      "opaque": "string",
+      "path": "string",
+      "rawFragment": "string",
+      "rawPath": "string",
+      "rawQuery": "string",
+      "scheme": "string",
+      "user": {}
+    },
     "listen_address": "string",
     "token_hash_file": "string"
   },
@@ -17680,6 +17706,19 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 
 ```json
 {
+  "controller_url": {
+    "forceQuery": true,
+    "fragment": "string",
+    "host": "string",
+    "omitHost": true,
+    "opaque": "string",
+    "path": "string",
+    "rawFragment": "string",
+    "rawPath": "string",
+    "rawQuery": "string",
+    "scheme": "string",
+    "user": {}
+  },
   "listen_address": "string",
   "token_hash_file": "string"
 }
@@ -17687,10 +17726,11 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 
 ### Properties
 
-| Name              | Type   | Required | Restrictions | Description |
-|-------------------|--------|----------|--------------|-------------|
-| `listen_address`  | string | false    |              |             |
-| `token_hash_file` | string | false    |              |             |
+| Name              | Type                       | Required | Restrictions | Description                                                                                                                         |
+|-------------------|----------------------------|----------|--------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `controller_url`  | [serpent.URL](#serpenturl) | false    |              | Controller URL is the base URL of the controller user API that coderd serves under /api/v2/cooplay/devws. Empty disables the route. |
+| `listen_address`  | string                     | false    |              |                                                                                                                                     |
+| `token_hash_file` | string                     | false    |              |                                                                                                                                     |
 
 ## codersdk.WorkspaceAgent
 

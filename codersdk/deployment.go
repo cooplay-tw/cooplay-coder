@@ -5003,6 +5003,15 @@ Write out the current server config as YAML to stdout.`,
 			Default:     "",
 			Hidden:      true,
 		},
+		{
+			Name:        "Workspace Admission Controller URL",
+			Description: "Base URL of the platform controller whose user API coderd forwards for signed-in users: /api/v2/cooplay/devws/v1/me/... goes to <URL>/v1/me/..., with the caller's Coder-Session-Token header. For example http://127.0.0.1:7410. Empty disables the route.",
+			Flag:        "workspace-admission-controller-url",
+			Env:         "CODER_WORKSPACE_ADMISSION_CONTROLLER_URL",
+			Value:       &c.WorkspaceAdmission.ControllerURL,
+			Default:     "",
+			Hidden:      true,
+		},
 	}
 
 	return opts
@@ -5133,6 +5142,9 @@ type AIConfig struct {
 type WorkspaceAdmissionConfig struct {
 	ListenAddress serpent.String `json:"listen_address" typescript:",notnull"`
 	TokenHashFile serpent.String `json:"token_hash_file" typescript:",notnull"`
+	// ControllerURL is the base URL of the controller user API that coderd
+	// serves under /api/v2/cooplay/devws. Empty disables the route.
+	ControllerURL serpent.URL `json:"controller_url" typescript:",notnull"`
 }
 
 type TemplateBuilderConfig struct {

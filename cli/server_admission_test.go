@@ -92,6 +92,21 @@ func TestServer_WorkspaceAdmissionListener(t *testing.T) {
 		}
 	})
 
+	t.Run("InvalidControllerURL", func(t *testing.T) {
+		t.Parallel()
+		ctx := testutil.Context(t, testutil.WaitLong)
+		inv, _ := clitest.New(t,
+			"server",
+			dbArg(t),
+			"--http-address", "127.0.0.1:0",
+			"--access-url", "http://example.com",
+			"--workspace-admission-controller-url", "localhost:7410",
+			"--cache-dir", t.TempDir(),
+		)
+		err := inv.WithContext(ctx).Run()
+		require.ErrorContains(t, err, "invalid workspace admission controller URL")
+	})
+
 	t.Run("MissingTokenHashFile", func(t *testing.T) {
 		t.Parallel()
 		ctx := testutil.Context(t, testutil.WaitLong)

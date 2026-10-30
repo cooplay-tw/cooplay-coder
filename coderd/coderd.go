@@ -751,6 +751,10 @@ func New(options *Options) *API {
 		Clock:                          options.Clock,
 		AgentInactiveDisconnectTimeout: options.AgentInactiveDisconnectTimeout,
 	})
+	api.cooplayDevws = newCooplayDevwsProxy(
+		options.Logger.Named("cooplay_devws_proxy"),
+		options.DeploymentValues.WorkspaceAdmission.ControllerURL.Value(),
+	)
 
 	api.WorkspaceAppsProvider = workspaceapps.NewDBTokenProvider(
 		ctx,
@@ -1466,6 +1470,13 @@ func New(options *Options) *API {
 		r.Route("/mcp", func(r chi.Router) {
 			r.Use(apiKeyMiddleware)
 			api.registerMCPServerOAuth2Routes(r, chatAPIPrefixV2)
+		})
+		// Cooplay: the devws controller user API for signed-in users
+		// (cooplay_devws_proxy.go). The wildcard is matched against an
+		// allowlist of controller routes.
+		r.Route("/cooplay/devws", func(r chi.Router) {
+			r.Use(apiKeyMiddleware)
+			r.Handle("/*", api.cooplayDevws)
 		})
 
 		r.Get("/updatecheck", api.updateCheck)
@@ -2359,6 +2370,8 @@ type API struct {
 
 	workspaceAgentConnWatcher  *workspaceconnwatcher.Watcher
 	workspaceBuildOrchestrator *wsbuildorchestrator.Orchestrator
+	// cooplayDevws serves CooplayDevwsRoutePrefix.
+	cooplayDevws http.Handler
 	// wakeIntents records connections to agents of managed workspaces
 	// that may need a wake.
 	wakeIntents *wakeintent.Recorder
