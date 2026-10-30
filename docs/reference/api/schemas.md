@@ -18461,6 +18461,40 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 |------------------------------------------------------|
 | `connected`, `connecting`, `disconnected`, `timeout` |
 
+## codersdk.WorkspaceAgentWakeResponse
+
+```json
+{
+  "result": "requested"
+}
+```
+
+### Properties
+
+| Name     | Type                                                                   | Required | Restrictions | Description |
+|----------|------------------------------------------------------------------------|----------|--------------|-------------|
+| `result` | [codersdk.WorkspaceAgentWakeResult](#codersdkworkspaceagentwakeresult) | false    |              |             |
+
+#### Enumerated Values
+
+| Property | Value(s)                                           |
+|----------|----------------------------------------------------|
+| `result` | `awake`, `not_managed`, `not_started`, `requested` |
+
+## codersdk.WorkspaceAgentWakeResult
+
+```json
+"requested"
+```
+
+### Properties
+
+#### Enumerated Values
+
+| Value(s)                                           |
+|----------------------------------------------------|
+| `awake`, `not_managed`, `not_started`, `requested` |
+
 ## codersdk.WorkspaceApp
 
 ```json

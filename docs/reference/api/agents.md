@@ -1314,3 +1314,40 @@ Status Code **200**
 | `level`  | `debug`, `error`, `info`, `trace`, `warn` |
 
 To perform this operation, you must be authenticated. [Learn more](authentication.md).
+
+## Wake the workspace of an agent
+
+### Code samples
+
+```sh
+# Example request using curl
+curl -X POST http://coder-server:8080/api/v2/workspaceagents/{workspaceagent}/wake \
+  -H 'Accept: application/json' \
+  -H 'Coder-Session-Token: API_KEY'
+```
+
+`POST /api/v2/workspaceagents/{workspaceagent}/wake`
+
+### Parameters
+
+| Name             | In   | Type         | Required | Description        |
+|------------------|------|--------------|----------|--------------------|
+| `workspaceagent` | path | string(uuid) | true     | Workspace agent ID |
+
+### Example responses
+
+> 202 Response
+
+```json
+{
+  "result": "requested"
+}
+```
+
+### Responses
+
+| Status | Meaning                                                       | Description | Schema                                                                               |
+|--------|---------------------------------------------------------------|-------------|--------------------------------------------------------------------------------------|
+| 202    | [Accepted](https://tools.ietf.org/html/rfc7231#section-6.3.3) | Accepted    | [codersdk.WorkspaceAgentWakeResponse](schemas.md#codersdkworkspaceagentwakeresponse) |
+
+To perform this operation, you must be authenticated. [Learn more](authentication.md).

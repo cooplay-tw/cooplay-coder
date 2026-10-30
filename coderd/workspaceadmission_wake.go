@@ -8,7 +8,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/coder/coder/v2/coderd/database/dbauthz"
+	"github.com/coder/coder/v2/coderd/httpapi"
+	"github.com/coder/coder/v2/coderd/httpmw"
 	"github.com/coder/coder/v2/coderd/rbac"
+	"github.com/coder/coder/v2/coderd/rbac/policy"
 	"github.com/coder/coder/v2/coderd/workspaceadmission/wakeintent"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/tailnet"
@@ -61,6 +64,48 @@ func (a *wakeIntentAuthorizer) AuthorizeTunnel(ctx context.Context, agentID uuid
 // the agents it opens tunnels to.
 func (a *wakeIntentAuthorizer) ObserveWorkspaceUpdates() {
 	a.connect.Store(true)
+}
+
+// postWorkspaceAgentWake asks the platform controller to wake the workspace
+// of an agent whose microVM may be asleep. CLI clients call it when they
+// find the agent disconnected, because they wait for the agent to reconnect
+// before they open a tunnel that would record a wake intent. The intent is
+// written before the answer. It never starts a stopped workspace.
+//
+// @Summary Wake the workspace of an agent
+// @ID wake-the-workspace-of-an-agent
+// @Security CoderSessionToken
+// @Produce json
+// @Tags Agents
+// @Param workspaceagent path string true "Workspace agent ID" format(uuid)
+// @Success 202 {object} codersdk.WorkspaceAgentWakeResponse
+// @Router /api/v2/workspaceagents/{workspaceagent}/wake [post]
+func (api *API) postWorkspaceAgentWake(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	waws := httpmw.WorkspaceAgentAndWorkspaceParam(r)
+	// Waking is part of connecting to the agent, so it needs the same
+	// permission as the coordinate route.
+	if !api.Authorize(r, policy.ActionSSH, waws) {
+		httpapi.ResourceNotFound(rw)
+		return
+	}
+	var result codersdk.WorkspaceAgentWakeResult
+	switch api.wakeIntents.Record(waws.WorkspaceAgent.ID, wakeRequesterID(r), wakeintent.SourceCLI) {
+	case wakeintent.ResultRecorded:
+		result = codersdk.WorkspaceAgentWakeRequested
+	case wakeintent.ResultSkippedRunning:
+		result = codersdk.WorkspaceAgentWakeAwake
+	case wakeintent.ResultSkippedUnmanaged:
+		result = codersdk.WorkspaceAgentWakeNotManaged
+	case wakeintent.ResultSkippedStopped:
+		result = codersdk.WorkspaceAgentWakeNotStarted
+	default:
+		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
+			Message: "Failed to record the wake request.",
+		})
+		return
+	}
+	httpapi.Write(ctx, rw, http.StatusAccepted, codersdk.WorkspaceAgentWakeResponse{Result: result})
 }
 
 // wakeRequesterID returns the user making the request, or zero when the

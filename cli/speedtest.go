@@ -92,6 +92,7 @@ func (r *RootCmd) speedtest() *serpent.Command {
 				Fetch:   client.WorkspaceAgent,
 				Wait:    false,
 				DocsURL: appearanceConfig.DocsURL,
+				Wake:    client.WorkspaceAgentWake,
 			})
 			if err != nil {
 				return xerrors.Errorf("await agent: %w", err)

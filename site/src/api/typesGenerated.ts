@@ -11442,6 +11442,28 @@ export const WorkspaceAgentStatuses: WorkspaceAgentStatus[] = [
 	"timeout",
 ];
 
+// From codersdk/workspacecooplay.go
+/**
+ * WorkspaceAgentWakeResponse is the answer to an explicit wake request.
+ */
+export interface WorkspaceAgentWakeResponse {
+	readonly result: WorkspaceAgentWakeResult;
+}
+
+// From codersdk/workspacecooplay.go
+export type WorkspaceAgentWakeResult =
+	| "awake"
+	| "not_managed"
+	| "not_started"
+	| "requested";
+
+export const WorkspaceAgentWakeResults: WorkspaceAgentWakeResult[] = [
+	"awake",
+	"not_managed",
+	"not_started",
+	"requested",
+];
+
 // From codersdk/workspaceapps.go
 export interface WorkspaceApp {
 	readonly id: string;

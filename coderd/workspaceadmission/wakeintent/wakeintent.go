@@ -206,6 +206,25 @@ func (r *Recorder) Enqueue(agentID, userID uuid.UUID, source Source) {
 	}
 }
 
+// Record writes a wake request for an agent at once, bypassing the queue
+// and the debounce window, counts it and returns its result. It is for
+// explicit wake requests whose client waits for the answer, outside the
+// tailnet coordinator lock. Call it only after the requester was authorized
+// to connect to the agent. A nil Recorder returns ResultFailed.
+func (r *Recorder) Record(agentID, userID uuid.UUID, source Source) string {
+	if r == nil {
+		return ResultFailed
+	}
+	now := r.clock.Now()
+	result := r.writeBatch(batch{
+		first: now,
+		last:  request{agentID: agentID, userID: userID, source: source, at: now},
+		count: 1,
+	})
+	r.count(source, result)
+	return result
+}
+
 // SkipConnect counts a request that was not enqueued because it came from
 // Coder Connect.
 func (r *Recorder) SkipConnect(source Source) {
@@ -260,7 +279,7 @@ func (r *Recorder) handle(req request) {
 		return
 	}
 	r.windows[req.agentID] = &window{opened: req.at}
-	r.count(req.source, r.record(batch{first: req.at, last: req, count: 1}))
+	r.count(req.source, r.writeBatch(batch{first: req.at, last: req, count: 1}))
 }
 
 // flush writes the coalesced requests of every window that ended, and
@@ -278,13 +297,13 @@ func (r *Recorder) flush(now time.Time) {
 		b := *w.pending
 		r.windows[agentID] = &window{opened: now}
 		// The requests were counted as debounced when they arrived.
-		_ = r.record(b)
+		_ = r.writeBatch(b)
 	}
 }
 
-// record decides whether the requests of b need a wake and writes the
+// writeBatch decides whether the requests of b need a wake and writes the
 // intent. It returns the metric result.
-func (r *Recorder) record(b batch) string {
+func (r *Recorder) writeBatch(b batch) string {
 	//nolint:gocritic // The hooks authorized the requester's access to the agent; this subject only reads wake state and writes intents.
 	ctx, cancel := context.WithTimeout(dbauthz.AsWorkspaceWakeRecorder(r.ctx), writeTimeout)
 	defer cancel()

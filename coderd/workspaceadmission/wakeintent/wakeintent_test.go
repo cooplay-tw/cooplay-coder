@@ -339,5 +339,38 @@ func TestNilRecorder(t *testing.T) {
 	var recorder *wakeintent.Recorder
 	recorder.Enqueue(uuid.New(), uuid.New(), wakeintent.SourceTailnet)
 	recorder.SkipConnect(wakeintent.SourceTailnet)
+	require.Equal(t, wakeintent.ResultFailed, recorder.Record(uuid.New(), uuid.New(), wakeintent.SourceCLI))
 	recorder.Close()
+}
+
+func TestRecorderRecord(t *testing.T) {
+	t.Parallel()
+	env := newRecorderEnv(t)
+	ws := env.managedWorkspace(t)
+	userID := ws.Workspace.OwnerID
+
+	// An explicit request is written before Record returns and is never
+	// debounced.
+	require.Equal(t, wakeintent.ResultRecorded, env.recorder.Record(ws.Agents[0].ID, userID, wakeintent.SourceCLI))
+	intent, ok := env.intent(t, ws.Workspace.ID)
+	require.True(t, ok)
+	require.Equal(t, "cli", intent.Source)
+	require.Equal(t, uuid.NullUUID{UUID: userID, Valid: true}, intent.RequestedBy)
+	require.EqualValues(t, 1, intent.RequestCount)
+	require.Equal(t, wakeintent.ResultRecorded, env.recorder.Record(ws.Agents[0].ID, userID, wakeintent.SourceCLI))
+	intent, ok = env.intent(t, ws.Workspace.ID)
+	require.True(t, ok)
+	require.EqualValues(t, 2, intent.RequestCount)
+	require.EqualValues(t, 2, env.counter(t, wakeintent.SourceCLI, wakeintent.ResultRecorded))
+
+	// The same skips as for queued requests.
+	unmanaged := env.workspace(t)
+	require.Equal(t, wakeintent.ResultSkippedUnmanaged, env.recorder.Record(unmanaged.Agents[0].ID, userID, wakeintent.SourceCLI))
+	running := env.managedWorkspace(t)
+	env.connectAgent(t, running.Agents[0].ID)
+	require.Equal(t, wakeintent.ResultSkippedRunning, env.recorder.Record(running.Agents[0].ID, userID, wakeintent.SourceCLI))
+	env.setPowerState(t, running.Workspace, "hibernated")
+	require.Equal(t, wakeintent.ResultRecorded, env.recorder.Record(running.Agents[0].ID, userID, wakeintent.SourceCLI))
+	require.EqualValues(t, 1, env.counter(t, wakeintent.SourceCLI, wakeintent.ResultSkippedUnmanaged))
+	require.EqualValues(t, 1, env.counter(t, wakeintent.SourceCLI, wakeintent.ResultSkippedRunning))
 }

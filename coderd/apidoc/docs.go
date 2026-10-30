@@ -14667,6 +14667,41 @@ const docTemplate = `{
                 ]
             }
         },
+        "/api/v2/workspaceagents/{workspaceagent}/wake": {
+            "post": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Agents"
+                ],
+                "summary": "Wake the workspace of an agent",
+                "operationId": "wake-the-workspace-of-an-agent",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Workspace agent ID",
+                        "name": "workspaceagent",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/codersdk.WorkspaceAgentWakeResponse"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "CoderSessionToken": []
+                    }
+                ]
+            }
+        },
         "/api/v2/workspaceagents/{workspaceagent}/watch-metadata": {
             "get": {
                 "tags": [
@@ -31412,6 +31447,39 @@ const docTemplate = `{
                 "WorkspaceAgentConnected",
                 "WorkspaceAgentDisconnected",
                 "WorkspaceAgentTimeout"
+            ]
+        },
+        "codersdk.WorkspaceAgentWakeResponse": {
+            "type": "object",
+            "properties": {
+                "result": {
+                    "enum": [
+                        "requested",
+                        "awake",
+                        "not_managed",
+                        "not_started"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/codersdk.WorkspaceAgentWakeResult"
+                        }
+                    ]
+                }
+            }
+        },
+        "codersdk.WorkspaceAgentWakeResult": {
+            "type": "string",
+            "enum": [
+                "requested",
+                "awake",
+                "not_managed",
+                "not_started"
+            ],
+            "x-enum-varnames": [
+                "WorkspaceAgentWakeRequested",
+                "WorkspaceAgentWakeAwake",
+                "WorkspaceAgentWakeNotManaged",
+                "WorkspaceAgentWakeNotStarted"
             ]
         },
         "codersdk.WorkspaceApp": {

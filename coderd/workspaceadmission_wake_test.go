@@ -2,6 +2,7 @@ package coderd_test
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"testing"
@@ -15,6 +16,7 @@ import (
 	"github.com/coder/coder/v2/coderd/database"
 	"github.com/coder/coder/v2/coderd/database/dbfake"
 	"github.com/coder/coder/v2/coderd/database/dbtestutil"
+	"github.com/coder/coder/v2/coderd/database/dbtime"
 	"github.com/coder/coder/v2/coderd/workspaceadmission/admissiontest"
 	"github.com/coder/coder/v2/codersdk"
 	"github.com/coder/coder/v2/codersdk/workspacesdk"
@@ -306,4 +308,69 @@ func TestWakeIntentAppOtherUser(t *testing.T) {
 	intent := env.requireWakeIntent(t, ws.Workspace.ID, "app")
 	require.EqualValues(t, 1, intent.RequestCount)
 	require.Zero(t, wakeCounter(t, env.api.PrometheusRegistry, "app", "debounced"))
+}
+
+func TestWakeIntentExplicit(t *testing.T) {
+	t.Parallel()
+	env := newWakeEnv(t)
+	ctx := testutil.Context(t, testutil.WaitLong)
+
+	// The agent of a managed workspace is not connected, as while its
+	// microVM sleeps. The intent is written before the answer.
+	ws := env.managedWorkspace(t)
+	resp, err := env.member.WorkspaceAgentWake(ctx, ws.Agents[0].ID)
+	require.NoError(t, err)
+	require.Equal(t, codersdk.WorkspaceAgentWakeRequested, resp.Result)
+	intent, ok := env.wakeIntent(t, ws.Workspace.ID)
+	require.True(t, ok)
+	require.Equal(t, "cli", intent.Source)
+	require.Equal(t, ws.Agents[0].ID, intent.AgentID)
+	require.Equal(t, uuid.NullUUID{UUID: env.memberID, Valid: true}, intent.RequestedBy)
+	// Explicit requests are never debounced.
+	resp, err = env.member.WorkspaceAgentWake(ctx, ws.Agents[0].ID)
+	require.NoError(t, err)
+	require.Equal(t, codersdk.WorkspaceAgentWakeRequested, resp.Result)
+	intent, ok = env.wakeIntent(t, ws.Workspace.ID)
+	require.True(t, ok)
+	require.EqualValues(t, 2, intent.RequestCount)
+
+	// Unmanaged workspaces never sleep.
+	unmanaged := env.workspace(t)
+	resp, err = env.member.WorkspaceAgentWake(ctx, unmanaged.Agents[0].ID)
+	require.NoError(t, err)
+	require.Equal(t, codersdk.WorkspaceAgentWakeNotManaged, resp.Result)
+	_, ok = env.wakeIntent(t, unmanaged.Workspace.ID)
+	require.False(t, ok)
+
+	// A connected agent without a reported sleep needs no wake.
+	running := env.managedWorkspace(t)
+	now := dbtime.Now()
+	require.NoError(t, env.db.UpdateWorkspaceAgentConnectionByID(ctx, database.UpdateWorkspaceAgentConnectionByIDParams{
+		ID:               running.Agents[0].ID,
+		FirstConnectedAt: sql.NullTime{Time: now, Valid: true},
+		LastConnectedAt:  sql.NullTime{Time: now, Valid: true},
+		UpdatedAt:        now,
+	}))
+	resp, err = env.member.WorkspaceAgentWake(ctx, running.Agents[0].ID)
+	require.NoError(t, err)
+	require.Equal(t, codersdk.WorkspaceAgentWakeAwake, resp.Result)
+	_, ok = env.wakeIntent(t, running.Workspace.ID)
+	require.False(t, ok)
+
+	// A stopped workspace is never woken; it has to be started.
+	stopped := env.managedWorkspace(t)
+	dbfake.WorkspaceBuild(t, env.db, stopped.Workspace).Seed(database.WorkspaceBuild{
+		BuildNumber: 2,
+		Transition:  database.WorkspaceTransitionStop,
+	}).Do()
+	resp, err = env.member.WorkspaceAgentWake(ctx, stopped.Agents[0].ID)
+	require.NoError(t, err)
+	require.Equal(t, codersdk.WorkspaceAgentWakeNotStarted, resp.Result)
+
+	// Users who may not connect to the agent learn nothing.
+	other, _ := coderdtest.CreateAnotherUser(t, env.owner, env.orgID)
+	_, err = other.WorkspaceAgentWake(ctx, ws.Agents[0].ID)
+	var sdkErr *codersdk.Error
+	require.ErrorAs(t, err, &sdkErr)
+	require.Equal(t, http.StatusNotFound, sdkErr.StatusCode())
 }

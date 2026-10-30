@@ -32,11 +32,22 @@ type AgentOptions struct {
 	FetchLogs     func(ctx context.Context, agentID uuid.UUID, after int64, follow bool) (<-chan []codersdk.WorkspaceAgentLog, io.Closer, error)
 	Wait          bool // If true, wait for the agent to be ready (startup script).
 	DocsURL       string
+	// Wake, if set, asks the platform to wake the workspace of the agent,
+	// whose microVM may be asleep. It is called once each time the waiter
+	// finds the agent disconnected or timed out, before it waits for the
+	// agent to connect. Errors are ignored: servers without the wake route
+	// still let the waiter wait.
+	Wake func(ctx context.Context, agentID uuid.UUID) (codersdk.WorkspaceAgentWakeResponse, error)
 }
+
+// wakeTimeout bounds one wake request so a slow server never delays
+// waiting for the agent.
+const wakeTimeout = 10 * time.Second
 
 // agentWaiter encapsulates the state machine for waiting on a workspace agent.
 type agentWaiter struct {
 	opts       AgentOptions
+	agentID    uuid.UUID
 	sw         *stageWriter
 	logSources map[uuid.UUID]codersdk.WorkspaceAgentLogSource
 	fetchAgent func(context.Context) (codersdk.WorkspaceAgent, error)
@@ -112,6 +123,7 @@ func Agent(ctx context.Context, writer io.Writer, agentID uuid.UUID, opts AgentO
 
 	w := &agentWaiter{
 		opts:       opts,
+		agentID:    agentID,
 		sw:         &stageWriter{w: writer},
 		logSources: logSources,
 		fetchAgent: fetch,
@@ -173,6 +185,7 @@ func (aw *agentWaiter) waitForConnection(ctx context.Context, agent codersdk.Wor
 		now := time.Now()
 		aw.sw.Log(now, codersdk.LogLevelInfo, "The workspace agent is having trouble connecting, wait for it to connect or restart your workspace.")
 		aw.sw.Log(now, codersdk.LogLevelInfo, troubleshootingMessage(agent, fmt.Sprintf("%s/admin/templates/troubleshooting#agent-connection-issues", aw.opts.DocsURL)))
+		aw.wake(ctx)
 		agent, err = aw.pollWhile(ctx, agent, func(agent codersdk.WorkspaceAgent) bool {
 			return agent.Status == codersdk.WorkspaceAgentTimeout
 		})
@@ -336,6 +349,7 @@ func (aw *agentWaiter) waitForReconnection(ctx context.Context, agent codersdk.W
 	aw.sw.Start(stage)
 	aw.sw.Log(time.Now(), codersdk.LogLevelWarn, "Wait for it to reconnect or restart your workspace.")
 	aw.sw.Log(time.Now(), codersdk.LogLevelWarn, troubleshootingMessage(agent, fmt.Sprintf("%s/admin/templates/troubleshooting#agent-connection-issues", aw.opts.DocsURL)))
+	aw.wake(ctx)
 
 	disconnectedAt := agent.DisconnectedAt
 	agent, err := aw.pollWhile(ctx, agent, func(agent codersdk.WorkspaceAgent) bool {
@@ -347,6 +361,20 @@ func (aw *agentWaiter) waitForReconnection(ctx context.Context, agent codersdk.W
 	aw.sw.Complete(stage, safeDuration(aw.sw, agent.LastConnectedAt, disconnectedAt))
 
 	return agent, showStartupLogs, nil
+}
+
+// wake asks the platform to wake the workspace of the agent, so a sleeping
+// workspace starts resuming while the waiter polls the agent.
+func (aw *agentWaiter) wake(ctx context.Context) {
+	if aw.opts.Wake == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, wakeTimeout)
+	defer cancel()
+	resp, err := aw.opts.Wake(ctx, aw.agentID)
+	if err == nil && resp.Result == codersdk.WorkspaceAgentWakeRequested {
+		aw.sw.Log(time.Now(), codersdk.LogLevelInfo, "Waking the sleeping workspace.")
+	}
 }
 
 // pollWhile polls the agent while the condition is true. It fetches the agent
