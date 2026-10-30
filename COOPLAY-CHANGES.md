@@ -136,6 +136,8 @@ The platform controller suspends the microVMs of managed workspaces
 (paused, hibernated, cold) while their Coder build stays running. Coder
 records what clients ask for, so the controller can wake a workspace or
 keep it awake, and serves the agent connection state the controller needs.
+The controller can also create and delete managed workspaces on behalf of
+their owners, and managed workspaces are never stopped on a schedule.
 
 Modified areas:
 
@@ -147,9 +149,12 @@ Modified areas:
   `workspace_admission_workspace_states` and `workspace_admission_grants`
   tables with a migration fixture, the intent and agent queries in
   `queries/workspaceadmissionintents.sql` and
-  `queries/workspaceadmissions.sql`, and the generated code, mocks,
-  metrics wrappers and `dbauthz` methods. The admission change cursor
-  covers admission records, intents and reported power states.
+  `queries/workspaceadmissions.sql`, the create, delete and grant mirror
+  queries in `queries/workspaceadmissionoperations.sql`, the schedule
+  queries of managed templates in `queries/workspaceadmissions.sql`, and
+  the generated code, mocks, metrics wrappers and `dbauthz` methods. The
+  admission change cursor covers admission records, intents and reported
+  power states.
 - RBAC (`coderd/rbac`, `coderd/database/dbauthz`): a `workspace_wake_recorder`
   subject that can only read managed templates, workspaces and their
   agents and create intent records. It cannot acknowledge intents.
@@ -173,6 +178,32 @@ Modified areas:
   `codersdk/workspacecooplay.go`): `POST
   /api/v2/workspaces/{workspace}/cooplay/keepalive` records a request to
   keep a managed workspace awake for users who may update the workspace.
+- Explicit wake (`coderd/workspaceadmission_wake.go`, `coderd/coderd.go`,
+  `codersdk/workspacecooplay.go`, `cli/cliui/agent.go`, `cli/ssh.go`,
+  `cli/vscodessh.go`, `cli/portforward.go`, `cli/open.go`,
+  `cli/speedtest.go`): `POST /api/v2/workspaceagents/{workspaceagent}/wake`
+  writes a wake intent at once for users who may connect to the agent and
+  answers whether a wake was requested. CLI commands that wait for a
+  disconnected or timed out agent call it once before they wait, and ignore
+  servers without the route.
+- Create and delete on behalf of the owner
+  (`coderd/workspaceadmission_create.go`, `coderd/workspaces.go`,
+  `coderd/workspaceadmission/create.go`, `cli/server_admission.go`): the
+  admission service creates a workspace with the owner's own permissions
+  through the regular workspace create path, which gains a hook that runs
+  after the build and its admission were inserted in the same transaction.
+  Owners that are not active users are refused.
+- Grant scope mirror (`coderd/workspaceadmission/admissionapi`,
+  `queries/workspaceadmissionoperations.sql`): creates and deletes under a
+  platform capability grant check a mirrored copy of its scope (owner,
+  expiry, revocation, templates, name prefix, workspace count, delete
+  permission) with the grant row locked. Grants carry IDs and limits only,
+  never secrets.
+- Template schedule (`coderd/schedule/template.go`): managed templates
+  report user autostop as disabled and no default TTL, so their builds get
+  no deadline and the lifecycle executor never stops them on a schedule.
+  Marking a template as managed also turns off its user autostop and
+  default TTL and clears the TTLs and build deadlines of its workspaces.
 - Restricted admission API (`coderd/workspaceadmission/admissionapi`,
   `cli/server_admission.go`): `GET /v1/wake-intents`,
   `POST /v1/wake-intents/{workspace_id}/ack`, `GET /v1/keepalive-intents`
@@ -180,5 +211,10 @@ Modified areas:
   acknowledgement only applies to the request the controller saw; intent
   events end `GET /v1/watch` long polls; workspaces carry the connection
   state of their agents as recorded in the database. Agents are never
-  dialed.
+  dialed. `POST /v1/workspaces` creates a workspace on behalf of its
+  owner and `POST /v1/workspaces/{workspace_id}/delete` deletes one, both
+  idempotent per operation; `PUT /v1/grants/{grant_id}` and
+  `POST /v1/grants/{grant_id}/revoke` maintain the grant scope mirror;
+  `PUT /v1/templates/{template_id}` also turns off the schedule stops of
+  the template.
 - Generated API types and documentation that follow from the changes above.
