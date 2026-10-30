@@ -137,7 +137,9 @@ The platform controller suspends the microVMs of managed workspaces
 records what clients ask for, so the controller can wake a workspace or
 keep it awake, and serves the agent connection state the controller needs.
 The controller can also create and delete managed workspaces on behalf of
-their owners, and managed workspaces are never stopped on a schedule.
+their owners, and managed workspaces are never stopped on a schedule. The
+controller reports the power state, agent Runs and facts of each managed
+workspace, which the workspace page shows.
 
 Modified areas:
 
@@ -152,9 +154,11 @@ Modified areas:
   `queries/workspaceadmissions.sql`, the create, delete and grant mirror
   queries in `queries/workspaceadmissionoperations.sql`, the schedule
   queries of managed templates in `queries/workspaceadmissions.sql`, and
-  the generated code, mocks, metrics wrappers and `dbauthz` methods. The
-  admission change cursor covers admission records, intents and reported
-  power states.
+  the generated code, mocks, metrics wrappers and `dbauthz` methods, and
+  the power state queries in `queries/workspaceadmissionstates.sql`. A
+  power state the controller reported as off keeps its power epoch
+  (`off_at`) and counts as absent. The admission change cursor covers
+  admission records, intents and reported power states.
 - RBAC (`coderd/rbac`, `coderd/database/dbauthz`): a `workspace_wake_recorder`
   subject that can only read managed templates, workspaces and their
   agents and create intent records. It cannot acknowledge intents.
@@ -204,6 +208,21 @@ Modified areas:
   no deadline and the lifecycle executor never stops them on a schedule.
   Marking a template as managed also turns off its user autostop and
   default TTL and clears the TTLs and build deadlines of its workspaces.
+- Power state display (`coderd/workspaceadmission_cooplay.go`,
+  `coderd/workspaces.go`, `coderd/aitasks.go`, `coderd/wsrelateddata.go`,
+  `coderd/database/db2sdk`, `codersdk/workspacecooplay.go`,
+  `codersdk/workspaces.go`): workspaces carry an optional `cooplay` object
+  with the reported power state, sleep notice, keepalive end, agent Runs,
+  last job, git and pull request facts and the Run and grant that created
+  them, read with one batched query for workspaces the requester already
+  read. Agents of a workspace whose microVM is not running are not
+  reported as failing.
+- Dashboard (`site/src/pages/WorkspacePage`, `site/src/modules/resources`,
+  `site/src/modules/workspaces`, `site/src/utils/workspace.tsx`,
+  `site/src/api`): the workspace status and agent status show the power
+  state, a power alert offers a Wake button and, while a sleep notice is
+  pending, a "Keep awake 2 h" button, and a Runs panel shows the Runs,
+  last job, git and pull request facts and the creating Run and grant.
 - Restricted admission API (`coderd/workspaceadmission/admissionapi`,
   `cli/server_admission.go`): `GET /v1/wake-intents`,
   `POST /v1/wake-intents/{workspace_id}/ack`, `GET /v1/keepalive-intents`
@@ -216,5 +235,7 @@ Modified areas:
   idempotent per operation; `PUT /v1/grants/{grant_id}` and
   `POST /v1/grants/{grant_id}/revoke` maintain the grant scope mirror;
   `PUT /v1/templates/{template_id}` also turns off the schedule stops of
-  the template.
+  the template; `PUT /v1/workspaces/{workspace_id}/state` stores the power
+  state of a workspace compare-and-set on its power epoch and
+  `DELETE /v1/workspaces/{workspace_id}/state` reports it as off.
 - Generated API types and documentation that follow from the changes above.
