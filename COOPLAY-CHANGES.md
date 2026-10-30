@@ -123,6 +123,19 @@ Modified areas:
 - CLI (`cli/exp_agent_sleepwake.go`, `cli/root.go`): hidden experimental
   commands `coder exp agent prepare-sleep` and `coder exp agent wake`, with
   `--socket-path` / `CODER_AGENT_SOCKET_PATH` like `coder exp sync`.
+- Client sessions (`agent/clientsessions.go`, `agent/agentsocket`,
+  `agent/agentssh/portforwardcount.go`, `tailnet/forwardcount.go`,
+  `cli/exp_agent_sleepwake.go`): a `GetSessions` RPC on the agent socket
+  (`proto/agentsocket.proto`, regenerated code, `SessionReporter` /
+  `WithSessionReporter`) returns the open SSH sessions by app name, the
+  connected reconnecting PTYs and the open port-forwarded connections, and
+  the hidden command `coder exp agent sessions [--json]` prints them as
+  `ssh`, `vscode`, `jetbrains`, `other`, `pty` and `port_forward`. The SSH
+  server counts open local forward channels other than JetBrains Gateway,
+  and `tailnet.Conn.ForwardedConnCount` counts the TCP connections and UDP
+  flows that netstack forwards from the tailnet to a local port, through a
+  wrapper of the engine handed to netstack that observes its existing
+  per-flow registrations. Nothing else in tailnet changed.
 - Tailnet lost peer timeout (`tailnet/configmaps.go`, `tailnet/conn.go`):
   the time a LOST peer is kept after its last handshake is configurable with
   `tailnet.Options.LostTimeout` (zero means the default), and the default
@@ -223,6 +236,16 @@ Modified areas:
   state, a power alert offers a Wake button and, while a sleep notice is
   pending, a "Keep awake 2 h" button, and a Runs panel shows the Runs,
   last job, git and pull request facts and the creating Run and grant.
+- Controller user API route (`coderd/cooplay_devws_proxy.go`,
+  `coderd/coderd.go`, `codersdk/deployment.go`, `cli/server_admission.go`):
+  with the hidden server option `--workspace-admission-controller-url`
+  (empty by default, which disables the route), signed-in users reach the
+  allowlisted user routes of the platform controller under
+  `/api/v2/cooplay/devws/v1/me`. Only the `Coder-Session-Token` header is
+  forwarded as a credential; cookies, `Authorization` headers, session
+  tokens in the query and the executor's workspace identity headers are
+  removed, and the controller cannot set cookies. Responses stream without
+  buffering or timeouts.
 - Restricted admission API (`coderd/workspaceadmission/admissionapi`,
   `cli/server_admission.go`): `GET /v1/wake-intents`,
   `POST /v1/wake-intents/{workspace_id}/ack`, `GET /v1/keepalive-intents`
