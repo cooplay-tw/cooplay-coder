@@ -988,6 +988,55 @@ func WorkspaceBuildAdmission(admission database.WorkspaceBuildAdmission) codersd
 	}
 }
 
+// WorkspaceCooplay converts what the platform controller reported about a
+// managed workspace to the form shown to users. Controller internals such
+// as the power epoch, generation and last resource sample are not exposed.
+func WorkspaceCooplay(row database.GetWorkspaceAdmissionCooplayByWorkspaceIDsRow) (codersdk.WorkspaceCooplay, error) {
+	cooplay := codersdk.WorkspaceCooplay{
+		SleepNoticeAt:  nullTimePtr(row.SleepNoticeAt),
+		KeepaliveUntil: nullTimePtr(row.KeepaliveUntil),
+		Runs:           []codersdk.WorkspaceCooplayRun{},
+	}
+	if row.PowerState.Valid {
+		cooplay.Power = &codersdk.WorkspaceCooplayPower{
+			State:  codersdk.WorkspaceCooplayPowerState(row.PowerState.String),
+			Since:  row.PowerSince.Time,
+			Reason: row.PowerReason.String,
+		}
+	}
+	if row.Runs.Valid {
+		if err := json.Unmarshal(row.Runs.RawMessage, &cooplay.Runs); err != nil {
+			return codersdk.WorkspaceCooplay{}, xerrors.Errorf("decode runs: %w", err)
+		}
+		if cooplay.Runs == nil {
+			cooplay.Runs = []codersdk.WorkspaceCooplayRun{}
+		}
+	}
+	for _, fact := range []struct {
+		name string
+		raw  pqtype.NullRawMessage
+		dst  any
+	}{
+		{"last job", row.LastJob, &cooplay.LastJob},
+		{"git facts", row.Git, &cooplay.Git},
+		{"pull request facts", row.Pr, &cooplay.PR},
+		{"create source", row.CreateSource, &cooplay.Source},
+	} {
+		if !fact.raw.Valid {
+			continue
+		}
+		// JSON null leaves the pointer nil.
+		if err := json.Unmarshal(fact.raw.RawMessage, fact.dst); err != nil {
+			return codersdk.WorkspaceCooplay{}, xerrors.Errorf("decode %s: %w", fact.name, err)
+		}
+	}
+	if cooplay.Source != nil {
+		cooplay.Source.GrantExpiresAt = nullTimePtr(row.GrantExpiresAt)
+		cooplay.Source.GrantRevokedAt = nullTimePtr(row.GrantRevokedAt)
+	}
+	return cooplay, nil
+}
+
 func TemplateRoleActions(role codersdk.TemplateRole) []policy.Action {
 	switch role {
 	case codersdk.TemplateRoleAdmin:

@@ -61,6 +61,65 @@ of the template will be used.
   "allow_renames": true,
   "automatic_updates": "always",
   "autostart_schedule": "string",
+  "cooplay": {
+    "git": {
+      "ahead": 0,
+      "base": "string",
+      "behind": 0,
+      "branch": "string",
+      "dirty": true,
+      "merge_conflict": true,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "uncommitted_files": 0
+    },
+    "keepalive_until": "2019-08-24T14:15:22Z",
+    "last_job": {
+      "argv_summary": "string",
+      "artifacts_path": "string",
+      "ended_at": "2019-08-24T14:15:22Z",
+      "exit_code": 0,
+      "id": "string",
+      "kind": "string",
+      "name": "string",
+      "run_id": "string",
+      "started_at": "2019-08-24T14:15:22Z"
+    },
+    "power": {
+      "reason": "string",
+      "since": "2019-08-24T14:15:22Z",
+      "state": "running"
+    },
+    "pr": {
+      "ci": "string",
+      "number": 0,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "state": "string",
+      "url": "string"
+    },
+    "runs": [
+      {
+        "grant_id": "string",
+        "harness": "string",
+        "id": "string",
+        "last_event_at": "2019-08-24T14:15:22Z",
+        "mode": "string",
+        "started_by": "employee",
+        "state": "running",
+        "waiting_reason": "string"
+      }
+    ],
+    "sleep_notice_at": "2019-08-24T14:15:22Z",
+    "source": {
+      "clone_of_workspace_id": "string",
+      "grant_expires_at": "2019-08-24T14:15:22Z",
+      "grant_id": "string",
+      "grant_revoked_at": "2019-08-24T14:15:22Z",
+      "harness": "string",
+      "initiator_workspace_id": "string",
+      "kind": "employee",
+      "run_id": "string"
+    }
+  },
   "created_at": "2019-08-24T14:15:22Z",
   "deleting_at": "2019-08-24T14:15:22Z",
   "dormant_at": "2019-08-24T14:15:22Z",
@@ -451,6 +510,65 @@ curl -X GET http://coder-server:8080/api/v2/users/{user}/workspace/{workspacenam
   "allow_renames": true,
   "automatic_updates": "always",
   "autostart_schedule": "string",
+  "cooplay": {
+    "git": {
+      "ahead": 0,
+      "base": "string",
+      "behind": 0,
+      "branch": "string",
+      "dirty": true,
+      "merge_conflict": true,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "uncommitted_files": 0
+    },
+    "keepalive_until": "2019-08-24T14:15:22Z",
+    "last_job": {
+      "argv_summary": "string",
+      "artifacts_path": "string",
+      "ended_at": "2019-08-24T14:15:22Z",
+      "exit_code": 0,
+      "id": "string",
+      "kind": "string",
+      "name": "string",
+      "run_id": "string",
+      "started_at": "2019-08-24T14:15:22Z"
+    },
+    "power": {
+      "reason": "string",
+      "since": "2019-08-24T14:15:22Z",
+      "state": "running"
+    },
+    "pr": {
+      "ci": "string",
+      "number": 0,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "state": "string",
+      "url": "string"
+    },
+    "runs": [
+      {
+        "grant_id": "string",
+        "harness": "string",
+        "id": "string",
+        "last_event_at": "2019-08-24T14:15:22Z",
+        "mode": "string",
+        "started_by": "employee",
+        "state": "running",
+        "waiting_reason": "string"
+      }
+    ],
+    "sleep_notice_at": "2019-08-24T14:15:22Z",
+    "source": {
+      "clone_of_workspace_id": "string",
+      "grant_expires_at": "2019-08-24T14:15:22Z",
+      "grant_id": "string",
+      "grant_revoked_at": "2019-08-24T14:15:22Z",
+      "harness": "string",
+      "initiator_workspace_id": "string",
+      "kind": "employee",
+      "run_id": "string"
+    }
+  },
   "created_at": "2019-08-24T14:15:22Z",
   "deleting_at": "2019-08-24T14:15:22Z",
   "dormant_at": "2019-08-24T14:15:22Z",
@@ -808,6 +926,65 @@ of the template will be used.
   "allow_renames": true,
   "automatic_updates": "always",
   "autostart_schedule": "string",
+  "cooplay": {
+    "git": {
+      "ahead": 0,
+      "base": "string",
+      "behind": 0,
+      "branch": "string",
+      "dirty": true,
+      "merge_conflict": true,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "uncommitted_files": 0
+    },
+    "keepalive_until": "2019-08-24T14:15:22Z",
+    "last_job": {
+      "argv_summary": "string",
+      "artifacts_path": "string",
+      "ended_at": "2019-08-24T14:15:22Z",
+      "exit_code": 0,
+      "id": "string",
+      "kind": "string",
+      "name": "string",
+      "run_id": "string",
+      "started_at": "2019-08-24T14:15:22Z"
+    },
+    "power": {
+      "reason": "string",
+      "since": "2019-08-24T14:15:22Z",
+      "state": "running"
+    },
+    "pr": {
+      "ci": "string",
+      "number": 0,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "state": "string",
+      "url": "string"
+    },
+    "runs": [
+      {
+        "grant_id": "string",
+        "harness": "string",
+        "id": "string",
+        "last_event_at": "2019-08-24T14:15:22Z",
+        "mode": "string",
+        "started_by": "employee",
+        "state": "running",
+        "waiting_reason": "string"
+      }
+    ],
+    "sleep_notice_at": "2019-08-24T14:15:22Z",
+    "source": {
+      "clone_of_workspace_id": "string",
+      "grant_expires_at": "2019-08-24T14:15:22Z",
+      "grant_id": "string",
+      "grant_revoked_at": "2019-08-24T14:15:22Z",
+      "harness": "string",
+      "initiator_workspace_id": "string",
+      "kind": "employee",
+      "run_id": "string"
+    }
+  },
   "created_at": "2019-08-24T14:15:22Z",
   "deleting_at": "2019-08-24T14:15:22Z",
   "dormant_at": "2019-08-24T14:15:22Z",
@@ -1143,6 +1320,65 @@ curl -X GET http://coder-server:8080/api/v2/workspaces \
       "allow_renames": true,
       "automatic_updates": "always",
       "autostart_schedule": "string",
+      "cooplay": {
+        "git": {
+          "ahead": 0,
+          "base": "string",
+          "behind": 0,
+          "branch": "string",
+          "dirty": true,
+          "merge_conflict": true,
+          "reported_at": "2019-08-24T14:15:22Z",
+          "uncommitted_files": 0
+        },
+        "keepalive_until": "2019-08-24T14:15:22Z",
+        "last_job": {
+          "argv_summary": "string",
+          "artifacts_path": "string",
+          "ended_at": "2019-08-24T14:15:22Z",
+          "exit_code": 0,
+          "id": "string",
+          "kind": "string",
+          "name": "string",
+          "run_id": "string",
+          "started_at": "2019-08-24T14:15:22Z"
+        },
+        "power": {
+          "reason": "string",
+          "since": "2019-08-24T14:15:22Z",
+          "state": "running"
+        },
+        "pr": {
+          "ci": "string",
+          "number": 0,
+          "reported_at": "2019-08-24T14:15:22Z",
+          "state": "string",
+          "url": "string"
+        },
+        "runs": [
+          {
+            "grant_id": "string",
+            "harness": "string",
+            "id": "string",
+            "last_event_at": "2019-08-24T14:15:22Z",
+            "mode": "string",
+            "started_by": "employee",
+            "state": "running",
+            "waiting_reason": "string"
+          }
+        ],
+        "sleep_notice_at": "2019-08-24T14:15:22Z",
+        "source": {
+          "clone_of_workspace_id": "string",
+          "grant_expires_at": "2019-08-24T14:15:22Z",
+          "grant_id": "string",
+          "grant_revoked_at": "2019-08-24T14:15:22Z",
+          "harness": "string",
+          "initiator_workspace_id": "string",
+          "kind": "employee",
+          "run_id": "string"
+        }
+      },
       "created_at": "2019-08-24T14:15:22Z",
       "deleting_at": "2019-08-24T14:15:22Z",
       "dormant_at": "2019-08-24T14:15:22Z",
@@ -1448,6 +1684,65 @@ curl -X GET http://coder-server:8080/api/v2/workspaces/{workspace} \
   "allow_renames": true,
   "automatic_updates": "always",
   "autostart_schedule": "string",
+  "cooplay": {
+    "git": {
+      "ahead": 0,
+      "base": "string",
+      "behind": 0,
+      "branch": "string",
+      "dirty": true,
+      "merge_conflict": true,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "uncommitted_files": 0
+    },
+    "keepalive_until": "2019-08-24T14:15:22Z",
+    "last_job": {
+      "argv_summary": "string",
+      "artifacts_path": "string",
+      "ended_at": "2019-08-24T14:15:22Z",
+      "exit_code": 0,
+      "id": "string",
+      "kind": "string",
+      "name": "string",
+      "run_id": "string",
+      "started_at": "2019-08-24T14:15:22Z"
+    },
+    "power": {
+      "reason": "string",
+      "since": "2019-08-24T14:15:22Z",
+      "state": "running"
+    },
+    "pr": {
+      "ci": "string",
+      "number": 0,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "state": "string",
+      "url": "string"
+    },
+    "runs": [
+      {
+        "grant_id": "string",
+        "harness": "string",
+        "id": "string",
+        "last_event_at": "2019-08-24T14:15:22Z",
+        "mode": "string",
+        "started_by": "employee",
+        "state": "running",
+        "waiting_reason": "string"
+      }
+    ],
+    "sleep_notice_at": "2019-08-24T14:15:22Z",
+    "source": {
+      "clone_of_workspace_id": "string",
+      "grant_expires_at": "2019-08-24T14:15:22Z",
+      "grant_id": "string",
+      "grant_revoked_at": "2019-08-24T14:15:22Z",
+      "harness": "string",
+      "initiator_workspace_id": "string",
+      "kind": "employee",
+      "run_id": "string"
+    }
+  },
   "created_at": "2019-08-24T14:15:22Z",
   "deleting_at": "2019-08-24T14:15:22Z",
   "dormant_at": "2019-08-24T14:15:22Z",
@@ -2139,6 +2434,65 @@ curl -X PUT http://coder-server:8080/api/v2/workspaces/{workspace}/dormant \
   "allow_renames": true,
   "automatic_updates": "always",
   "autostart_schedule": "string",
+  "cooplay": {
+    "git": {
+      "ahead": 0,
+      "base": "string",
+      "behind": 0,
+      "branch": "string",
+      "dirty": true,
+      "merge_conflict": true,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "uncommitted_files": 0
+    },
+    "keepalive_until": "2019-08-24T14:15:22Z",
+    "last_job": {
+      "argv_summary": "string",
+      "artifacts_path": "string",
+      "ended_at": "2019-08-24T14:15:22Z",
+      "exit_code": 0,
+      "id": "string",
+      "kind": "string",
+      "name": "string",
+      "run_id": "string",
+      "started_at": "2019-08-24T14:15:22Z"
+    },
+    "power": {
+      "reason": "string",
+      "since": "2019-08-24T14:15:22Z",
+      "state": "running"
+    },
+    "pr": {
+      "ci": "string",
+      "number": 0,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "state": "string",
+      "url": "string"
+    },
+    "runs": [
+      {
+        "grant_id": "string",
+        "harness": "string",
+        "id": "string",
+        "last_event_at": "2019-08-24T14:15:22Z",
+        "mode": "string",
+        "started_by": "employee",
+        "state": "running",
+        "waiting_reason": "string"
+      }
+    ],
+    "sleep_notice_at": "2019-08-24T14:15:22Z",
+    "source": {
+      "clone_of_workspace_id": "string",
+      "grant_expires_at": "2019-08-24T14:15:22Z",
+      "grant_id": "string",
+      "grant_revoked_at": "2019-08-24T14:15:22Z",
+      "harness": "string",
+      "initiator_workspace_id": "string",
+      "kind": "employee",
+      "run_id": "string"
+    }
+  },
   "created_at": "2019-08-24T14:15:22Z",
   "deleting_at": "2019-08-24T14:15:22Z",
   "dormant_at": "2019-08-24T14:15:22Z",

@@ -124,6 +124,7 @@ func (api *API) workspace(rw http.ResponseWriter, r *http.Request) {
 		data.templates[0],
 		api.AllowWorkspaceRenames,
 		appStatus,
+		data.cooplayOf(workspace.ID),
 	)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
@@ -341,6 +342,7 @@ func (api *API) workspaceByOwnerAndName(rw http.ResponseWriter, r *http.Request)
 		data.templates[0],
 		api.AllowWorkspaceRenames,
 		appStatus,
+		data.cooplayOf(workspace.ID),
 	)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
@@ -866,6 +868,7 @@ func createWorkspace(
 		template,
 		api.AllowWorkspaceRenames,
 		codersdk.WorkspaceAppStatus{},
+		nil,
 	)
 	if err != nil {
 		return codersdk.Workspace{}, httperror.NewResponseError(http.StatusInternalServerError, codersdk.Response{
@@ -1608,6 +1611,7 @@ func (api *API) putWorkspaceDormant(rw http.ResponseWriter, r *http.Request) {
 		data.templates[0],
 		api.AllowWorkspaceRenames,
 		appStatus,
+		data.cooplayOf(workspace.ID),
 	)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
@@ -2187,6 +2191,7 @@ func (api *API) watchWorkspace(
 			data.templates[0],
 			api.AllowWorkspaceRenames,
 			appStatus,
+			data.cooplayOf(workspace.ID),
 		)
 		if err != nil {
 			_ = sendEvent(codersdk.ServerSentEvent{
@@ -2613,6 +2618,17 @@ type workspaceData struct {
 	builds       []codersdk.WorkspaceBuild
 	appStatuses  []codersdk.WorkspaceAppStatus
 	allowRenames bool
+	cooplay      map[uuid.UUID]codersdk.WorkspaceCooplay
+}
+
+// cooplayOf returns what the platform controller reported about a
+// workspace, or nil.
+func (d workspaceData) cooplayOf(workspaceID uuid.UUID) *codersdk.WorkspaceCooplay {
+	cooplay, ok := d.cooplay[workspaceID]
+	if !ok {
+		return nil
+	}
+	return &cooplay
 }
 
 // @Summary Completely clears the workspace's user and group ACLs.
@@ -2703,6 +2719,7 @@ func (api *API) workspaceData(ctx context.Context, workspaces []database.Workspa
 		templates   []database.Template
 		builds      []database.WorkspaceBuild
 		appStatuses []database.WorkspaceAppStatus
+		cooplay     map[uuid.UUID]codersdk.WorkspaceCooplay
 		eg          errgroup.Group
 	)
 	if cfg.Template {
@@ -2736,6 +2753,12 @@ func (api *API) workspaceData(ctx context.Context, workspaces []database.Workspa
 				return xerrors.Errorf("get workspace app statuses: %w", err)
 			}
 			return nil
+		})
+	}
+	if cfg.Cooplay {
+		eg.Go(func() (err error) {
+			cooplay, err = api.workspaceCooplay(ctx, workspaces)
+			return err
 		})
 	}
 	err := eg.Wait()
@@ -2775,6 +2798,7 @@ func (api *API) workspaceData(ctx context.Context, workspaces []database.Workspa
 		appStatuses:  db2sdk.WorkspaceAppStatuses(appStatuses),
 		builds:       apiBuilds,
 		allowRenames: api.AllowWorkspaceRenames,
+		cooplay:      cooplay,
 	}, nil
 }
 
@@ -2862,6 +2886,7 @@ func convertWorkspaces(
 			template,
 			data.allowRenames,
 			appStatus,
+			data.cooplayOf(workspace.ID),
 		)
 		if err != nil {
 			return nil, xerrors.Errorf("convert workspace: %w", err)
@@ -2881,6 +2906,7 @@ func convertWorkspace(
 	template database.Template,
 	allowRenames bool,
 	latestAppStatus codersdk.WorkspaceAppStatus,
+	cooplay *codersdk.WorkspaceCooplay,
 ) (codersdk.Workspace, error) {
 	if requesterID == uuid.Nil {
 		return codersdk.Workspace{}, xerrors.Errorf("developer error: requesterID cannot be uuid.Nil!")
@@ -2919,6 +2945,12 @@ func convertWorkspace(
 				failingAgents = append(failingAgents, agent.ID)
 			}
 		}
+	}
+
+	// The agents of a managed workspace whose microVM is not running are
+	// disconnected on purpose; the power state explains it.
+	if cooplay != nil && cooplay.Power != nil && !cooplay.Power.State.VMRunning() {
+		failingAgents = []uuid.UUID{}
 	}
 
 	ttlMillis := convertWorkspaceTTLMillis(workspace.Ttl)
@@ -2973,6 +3005,7 @@ func convertWorkspace(
 		IsPrebuild:       workspace.IsPrebuild(),
 		TaskID:           workspace.TaskID,
 		SharedWith:       sharedWorkspaceActors(ctx, logger, workspace),
+		Cooplay:          cooplay,
 	}, nil
 }
 

@@ -78,6 +78,10 @@ type Workspace struct {
 	// TaskID, if set, indicates that the workspace is relevant to the given codersdk.Task.
 	TaskID     uuid.NullUUID          `json:"task_id,omitempty"`
 	SharedWith []SharedWorkspaceActor `json:"shared_with,omitempty"`
+	// Cooplay is what the platform controller reports about a workspace of
+	// a template managed by workspace admission. It is omitted for other
+	// workspaces and while the controller reports nothing.
+	Cooplay *WorkspaceCooplay `json:"cooplay,omitempty"`
 }
 
 func (w Workspace) FullName() string {

@@ -190,8 +190,8 @@ COMMENT ON COLUMN workspace_admission_delete_operations.canceled_job_id IS
     'Pending START job that was canceled before it was acquired so the DELETE build could be created.';
 
 -- Power state of managed workspaces as pushed by the controller. A missing
--- row means the controller reports the workspace as off or has not reported
--- it yet.
+-- row means the controller has not reported the workspace yet; a row with
+-- off_at set means the controller reports it as off.
 CREATE TABLE workspace_admission_workspace_states (
     workspace_id UUID PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -207,6 +207,7 @@ CREATE TABLE workspace_admission_workspace_states (
     git JSONB,
     pr JSONB,
     last_sample JSONB,
+    off_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL,
     CONSTRAINT workspace_admission_workspace_states_power_state_check CHECK (
         power_state IN ('running', 'reduced', 'paused', 'hibernated', 'cold', 'waking', 'sleeping', 'unknown')
@@ -242,13 +243,16 @@ CREATE INDEX workspace_admission_workspace_states_updated_at_idx
     ON workspace_admission_workspace_states (updated_at);
 
 COMMENT ON TABLE workspace_admission_workspace_states IS
-    'Power state, runs and facts of managed workspaces as pushed by the controller, for display. The controller is authoritative; a missing row means off or not reported.';
+    'Power state, runs and facts of managed workspaces as pushed by the controller, for display. The controller is authoritative; a missing row means not reported, a row with off_at means off.';
 
 COMMENT ON COLUMN workspace_admission_workspace_states.power_epoch IS
     'Controller power epoch of the state. Updates with a lower epoch are rejected; an equal epoch may update runs, job, facts and notices.';
 
 COMMENT ON COLUMN workspace_admission_workspace_states.sleep_notice_at IS
     'Time of a pending policy sleep. The workspace page offers a keepalive while it is set.';
+
+COMMENT ON COLUMN workspace_admission_workspace_states.off_at IS
+    'Set when the controller reported the workspace as off. The row then only keeps power_epoch, so that a delayed older state is still rejected, and readers treat it as absent. A newer state clears it.';
 
 -- Scope mirror of controller capability grants. The controller is
 -- authoritative for grants; Coder only checks this mirror atomically with

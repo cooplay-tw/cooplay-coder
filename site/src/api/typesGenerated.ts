@@ -11005,6 +11005,12 @@ export interface Workspace {
 	 */
 	readonly task_id?: string;
 	readonly shared_with?: readonly SharedWorkspaceActor[];
+	/**
+	 * Cooplay is what the platform controller reports about a workspace of
+	 * a template managed by workspace admission. It is omitted for other
+	 * workspaces and while the controller reports nothing.
+	 */
+	readonly cooplay?: WorkspaceCooplay;
 }
 
 // From codersdk/workspaces.go
@@ -11742,6 +11748,70 @@ export interface WorkspaceConnectionLatencyMS {
 
 // From codersdk/workspacecooplay.go
 /**
+ * WorkspaceCooplay is what the platform controller reports about a
+ * workspace of a managed template: the power state of its microVM, agent
+ * Runs, facts about its work and how it was created.
+ */
+export interface WorkspaceCooplay {
+	/**
+	 * Power is omitted while the platform reports no power state, for
+	 * example while the workspace is stopped.
+	 */
+	readonly power?: WorkspaceCooplayPower;
+	/**
+	 * SleepNoticeAt is the time of a pending sleep. Until then a keepalive
+	 * request keeps the workspace awake.
+	 */
+	readonly sleep_notice_at?: string;
+	/**
+	 * KeepaliveUntil is the end of an applied keepalive.
+	 */
+	readonly keepalive_until?: string;
+	readonly runs: readonly WorkspaceCooplayRun[];
+	readonly last_job?: WorkspaceCooplayJob;
+	readonly git?: WorkspaceCooplayGit;
+	readonly pr?: WorkspaceCooplayPR;
+	/**
+	 * Source is set for workspaces the platform controller created.
+	 */
+	readonly source?: WorkspaceCooplaySource;
+}
+
+// From codersdk/workspacecooplay.go
+/**
+ * WorkspaceCooplayGit are git facts the workspace reported about its work
+ * tree. They are reported from inside the workspace and only displayed.
+ */
+export interface WorkspaceCooplayGit {
+	readonly branch: string;
+	readonly base: string;
+	readonly dirty: boolean;
+	readonly uncommitted_files: number;
+	readonly ahead: number;
+	readonly behind: number;
+	readonly merge_conflict?: boolean;
+	readonly reported_at: string;
+}
+
+// From codersdk/workspacecooplay.go
+/**
+ * WorkspaceCooplayJob is the latest job run through the platform in a
+ * workspace.
+ */
+export interface WorkspaceCooplayJob {
+	readonly id: string;
+	readonly name: string;
+	readonly kind: string;
+	readonly argv_summary: string;
+	readonly artifacts_path: string;
+	readonly run_id: string;
+	readonly started_at: string;
+	readonly ended_at?: string;
+	readonly exit_code?: number;
+}
+
+// From codersdk/workspacecooplay.go
+/**
  * WorkspaceCooplayKeepaliveDefaultSeconds is the keepalive duration of
  * a request without one: two hours, the "Keep awake 2 h" action.
  */
@@ -11776,6 +11846,145 @@ export interface WorkspaceCooplayKeepaliveResponse {
 	readonly requested_at: string;
 	readonly for_seconds: number;
 }
+
+// From codersdk/workspacecooplay.go
+/**
+ * WorkspaceCooplayPR are pull request facts the workspace reported. They
+ * are reported from inside the workspace and only displayed.
+ */
+export interface WorkspaceCooplayPR {
+	readonly url: string;
+	readonly state: string;
+	readonly ci: string;
+	readonly number: number;
+	readonly reported_at: string;
+}
+
+// From codersdk/workspacecooplay.go
+/**
+ * WorkspaceCooplayPower is the power state of the microVM of a workspace.
+ */
+export interface WorkspaceCooplayPower {
+	readonly state: WorkspaceCooplayPowerState;
+	/**
+	 * Since is when the microVM entered the state.
+	 */
+	readonly since: string;
+	/**
+	 * Reason is the platform reason of the state, for example idle.
+	 */
+	readonly reason: string;
+}
+
+// From codersdk/workspacecooplay.go
+export type WorkspaceCooplayPowerState =
+	| "cold"
+	| "hibernated"
+	| "paused"
+	| "reduced"
+	| "running"
+	| "sleeping"
+	| "unknown"
+	| "waking";
+
+export const WorkspaceCooplayPowerStates: WorkspaceCooplayPowerState[] = [
+	"cold",
+	"hibernated",
+	"paused",
+	"reduced",
+	"running",
+	"sleeping",
+	"unknown",
+	"waking",
+];
+
+// From codersdk/workspacecooplay.go
+/**
+ * WorkspaceCooplayRun is an agent Run in a workspace, as reported by the
+ * platform controller.
+ */
+export interface WorkspaceCooplayRun {
+	readonly id: string;
+	/**
+	 * Harness is the agent harness, for example claude-code.
+	 */
+	readonly harness: string;
+	/**
+	 * Mode is where the harness runs: A inside the workspace, B outside.
+	 */
+	readonly mode: string;
+	readonly state: WorkspaceCooplayRunState;
+	readonly waiting_reason: string;
+	readonly started_by: WorkspaceCooplayRunStarter;
+	/**
+	 * GrantID is the capability grant of a Run started under one.
+	 */
+	readonly grant_id: string;
+	readonly last_event_at: string;
+}
+
+// From codersdk/workspacecooplay.go
+export type WorkspaceCooplayRunStarter = "employee" | "grant";
+
+export const WorkspaceCooplayRunStarters: WorkspaceCooplayRunStarter[] = [
+	"employee",
+	"grant",
+];
+
+// From codersdk/workspacecooplay.go
+export type WorkspaceCooplayRunState =
+	| "done"
+	| "failed"
+	| "idle"
+	| "running"
+	| "waiting_human"
+	| "waiting_model";
+
+export const WorkspaceCooplayRunStates: WorkspaceCooplayRunState[] = [
+	"done",
+	"failed",
+	"idle",
+	"running",
+	"waiting_human",
+	"waiting_model",
+];
+
+// From codersdk/workspacecooplay.go
+/**
+ * WorkspaceCooplaySource tells how the platform controller created a
+ * workspace on behalf of its owner. Empty strings mean not set.
+ */
+export interface WorkspaceCooplaySource {
+	readonly kind: WorkspaceCooplaySourceKind;
+	/**
+	 * GrantID is the capability grant the workspace was created under.
+	 */
+	readonly grant_id: string;
+	/**
+	 * RunID is the agent Run that created the workspace.
+	 */
+	readonly run_id: string;
+	/**
+	 * Harness is the agent harness that created the workspace.
+	 */
+	readonly harness: string;
+	readonly initiator_workspace_id: string;
+	readonly clone_of_workspace_id: string;
+	/**
+	 * GrantExpiresAt and GrantRevokedAt describe the grant, when Coder
+	 * knows it.
+	 */
+	readonly grant_expires_at?: string;
+	readonly grant_revoked_at?: string;
+}
+
+// From codersdk/workspacecooplay.go
+export type WorkspaceCooplaySourceKind = "agent_grant" | "employee";
+
+export const WorkspaceCooplaySourceKinds: WorkspaceCooplaySourceKind[] = [
+	"agent_grant",
+	"employee",
+];
 
 // From codersdk/deployment.go
 export interface WorkspaceDeploymentStats {

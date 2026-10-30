@@ -4992,6 +4992,27 @@ func (s *MethodTestSuite) TestWorkspaceAdmission() {
 			rbac.ResourceWorkspace, policy.ActionRead,
 		)
 	}))
+	s.Run("UpsertWorkspaceAdmissionWorkspaceState", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		state := database.WorkspaceAdmissionWorkspaceState{WorkspaceID: uuid.New(), OrganizationID: uuid.New(), PowerState: "hibernated", PowerEpoch: 3}
+		arg := database.UpsertWorkspaceAdmissionWorkspaceStateParams{WorkspaceID: state.WorkspaceID, OrganizationID: state.OrganizationID, PowerState: state.PowerState, PowerEpoch: state.PowerEpoch}
+		dbm.EXPECT().UpsertWorkspaceAdmissionWorkspaceState(gomock.Any(), arg).Return(state, nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(state)
+	}))
+	s.Run("ClearWorkspaceAdmissionWorkspaceState", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		arg := database.ClearWorkspaceAdmissionWorkspaceStateParams{WorkspaceID: uuid.New(), Now: dbtime.Now()}
+		dbm.EXPECT().ClearWorkspaceAdmissionWorkspaceState(gomock.Any(), arg).Return(int64(1), nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(int64(1))
+	}))
+	s.Run("GetWorkspaceAdmissionWorkspaceStateByWorkspaceID", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		state := database.WorkspaceAdmissionWorkspaceState{WorkspaceID: uuid.New(), OrganizationID: uuid.New(), PowerState: "running"}
+		dbm.EXPECT().GetWorkspaceAdmissionWorkspaceStateByWorkspaceID(gomock.Any(), state.WorkspaceID).Return(state, nil).AnyTimes()
+		check.Args(state.WorkspaceID).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead).Returns(state)
+	}))
+	s.Run("GetWorkspaceAdmissionCooplayByWorkspaceIDs", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		ids := []uuid.UUID{uuid.New()}
+		dbm.EXPECT().GetWorkspaceAdmissionCooplayByWorkspaceIDs(gomock.Any(), ids).Return([]database.GetWorkspaceAdmissionCooplayByWorkspaceIDsRow{}, nil).AnyTimes()
+		check.Args(ids).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionRead)
+	}))
 	s.Run("GetWorkspaceAdmissionWakeTargetByAgentID", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
 		id := uuid.New()
 		dbm.EXPECT().GetWorkspaceAdmissionWakeTargetByAgentID(gomock.Any(), id).Return(database.GetWorkspaceAdmissionWakeTargetByAgentIDRow{}, nil).AnyTimes()

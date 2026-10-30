@@ -336,6 +336,14 @@ func (m queryMetricsStore) ClearWorkspaceAdmissionBuildDeadlines(ctx context.Con
 	return r0, r1
 }
 
+func (m queryMetricsStore) ClearWorkspaceAdmissionWorkspaceState(ctx context.Context, arg database.ClearWorkspaceAdmissionWorkspaceStateParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.ClearWorkspaceAdmissionWorkspaceState(ctx, arg)
+	m.queryLatencies.WithLabelValues("ClearWorkspaceAdmissionWorkspaceState").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ClearWorkspaceAdmissionWorkspaceState").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) ClearWorkspaceAdmissionWorkspaceTTLs(ctx context.Context, templateID uuid.UUID) (int64, error) {
 	start := time.Now()
 	r0, r1 := m.s.ClearWorkspaceAdmissionWorkspaceTTLs(ctx, templateID)
@@ -3600,6 +3608,14 @@ func (m queryMetricsStore) GetWorkspaceACLByID(ctx context.Context, id uuid.UUID
 	return r0, r1
 }
 
+func (m queryMetricsStore) GetWorkspaceAdmissionCooplayByWorkspaceIDs(ctx context.Context, workspaceIds []uuid.UUID) ([]database.GetWorkspaceAdmissionCooplayByWorkspaceIDsRow, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetWorkspaceAdmissionCooplayByWorkspaceIDs(ctx, workspaceIds)
+	m.queryLatencies.WithLabelValues("GetWorkspaceAdmissionCooplayByWorkspaceIDs").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceAdmissionCooplayByWorkspaceIDs").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) GetWorkspaceAdmissionCreateOperationByOperationID(ctx context.Context, operationID uuid.UUID) (database.WorkspaceAdmissionCreateOperation, error) {
 	start := time.Now()
 	r0, r1 := m.s.GetWorkspaceAdmissionCreateOperationByOperationID(ctx, operationID)
@@ -3717,6 +3733,14 @@ func (m queryMetricsStore) GetWorkspaceAdmissionWorkspaceAgents(ctx context.Cont
 	r0, r1 := m.s.GetWorkspaceAdmissionWorkspaceAgents(ctx, workspaceID)
 	m.queryLatencies.WithLabelValues("GetWorkspaceAdmissionWorkspaceAgents").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceAdmissionWorkspaceAgents").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) GetWorkspaceAdmissionWorkspaceStateByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (database.WorkspaceAdmissionWorkspaceState, error) {
+	start := time.Now()
+	r0, r1 := m.s.GetWorkspaceAdmissionWorkspaceStateByWorkspaceID(ctx, workspaceID)
+	m.queryLatencies.WithLabelValues("GetWorkspaceAdmissionWorkspaceStateByWorkspaceID").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "GetWorkspaceAdmissionWorkspaceStateByWorkspaceID").Inc()
 	return r0, r1
 }
 
@@ -6989,6 +7013,14 @@ func (m queryMetricsStore) UpsertWorkspaceAdmissionWakeIntent(ctx context.Contex
 	r0, r1 := m.s.UpsertWorkspaceAdmissionWakeIntent(ctx, arg)
 	m.queryLatencies.WithLabelValues("UpsertWorkspaceAdmissionWakeIntent").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpsertWorkspaceAdmissionWakeIntent").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) UpsertWorkspaceAdmissionWorkspaceState(ctx context.Context, arg database.UpsertWorkspaceAdmissionWorkspaceStateParams) (database.WorkspaceAdmissionWorkspaceState, error) {
+	start := time.Now()
+	r0, r1 := m.s.UpsertWorkspaceAdmissionWorkspaceState(ctx, arg)
+	m.queryLatencies.WithLabelValues("UpsertWorkspaceAdmissionWorkspaceState").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "UpsertWorkspaceAdmissionWorkspaceState").Inc()
 	return r0, r1
 }
 

@@ -30591,6 +30591,14 @@ const docTemplate = `{
                 "autostart_schedule": {
                     "type": "string"
                 },
+                "cooplay": {
+                    "description": "Cooplay is what the platform controller reports about a workspace of\na template managed by workspace admission. It is omitted for other\nworkspaces and while the controller reports nothing.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/codersdk.WorkspaceCooplay"
+                        }
+                    ]
+                },
                 "created_at": {
                     "type": "string",
                     "format": "date-time"
@@ -31906,6 +31914,116 @@ const docTemplate = `{
                 }
             }
         },
+        "codersdk.WorkspaceCooplay": {
+            "type": "object",
+            "properties": {
+                "git": {
+                    "$ref": "#/definitions/codersdk.WorkspaceCooplayGit"
+                },
+                "keepalive_until": {
+                    "description": "KeepaliveUntil is the end of an applied keepalive.",
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "last_job": {
+                    "$ref": "#/definitions/codersdk.WorkspaceCooplayJob"
+                },
+                "power": {
+                    "description": "Power is omitted while the platform reports no power state, for\nexample while the workspace is stopped.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/codersdk.WorkspaceCooplayPower"
+                        }
+                    ]
+                },
+                "pr": {
+                    "$ref": "#/definitions/codersdk.WorkspaceCooplayPR"
+                },
+                "runs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/codersdk.WorkspaceCooplayRun"
+                    }
+                },
+                "sleep_notice_at": {
+                    "description": "SleepNoticeAt is the time of a pending sleep. Until then a keepalive\nrequest keeps the workspace awake.",
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "source": {
+                    "description": "Source is set for workspaces the platform controller created.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/codersdk.WorkspaceCooplaySource"
+                        }
+                    ]
+                }
+            }
+        },
+        "codersdk.WorkspaceCooplayGit": {
+            "type": "object",
+            "properties": {
+                "ahead": {
+                    "type": "integer"
+                },
+                "base": {
+                    "type": "string"
+                },
+                "behind": {
+                    "type": "integer"
+                },
+                "branch": {
+                    "type": "string"
+                },
+                "dirty": {
+                    "type": "boolean"
+                },
+                "merge_conflict": {
+                    "type": "boolean"
+                },
+                "reported_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "uncommitted_files": {
+                    "type": "integer"
+                }
+            }
+        },
+        "codersdk.WorkspaceCooplayJob": {
+            "type": "object",
+            "properties": {
+                "argv_summary": {
+                    "type": "string"
+                },
+                "artifacts_path": {
+                    "type": "string"
+                },
+                "ended_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "exit_code": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "run_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string",
+                    "format": "date-time"
+                }
+            }
+        },
         "codersdk.WorkspaceCooplayKeepaliveRequest": {
             "type": "object",
             "properties": {
@@ -31926,6 +32044,218 @@ const docTemplate = `{
                     "format": "date-time"
                 }
             }
+        },
+        "codersdk.WorkspaceCooplayPR": {
+            "type": "object",
+            "properties": {
+                "ci": {
+                    "type": "string"
+                },
+                "number": {
+                    "type": "integer"
+                },
+                "reported_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "codersdk.WorkspaceCooplayPower": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "description": "Reason is the platform reason of the state, for example idle.",
+                    "type": "string"
+                },
+                "since": {
+                    "description": "Since is when the microVM entered the state.",
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "state": {
+                    "enum": [
+                        "running",
+                        "reduced",
+                        "paused",
+                        "hibernated",
+                        "cold",
+                        "waking",
+                        "sleeping",
+                        "unknown"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/codersdk.WorkspaceCooplayPowerState"
+                        }
+                    ]
+                }
+            }
+        },
+        "codersdk.WorkspaceCooplayPowerState": {
+            "type": "string",
+            "enum": [
+                "running",
+                "reduced",
+                "paused",
+                "hibernated",
+                "cold",
+                "waking",
+                "sleeping",
+                "unknown"
+            ],
+            "x-enum-varnames": [
+                "WorkspaceCooplayPowerRunning",
+                "WorkspaceCooplayPowerReduced",
+                "WorkspaceCooplayPowerPaused",
+                "WorkspaceCooplayPowerHibernated",
+                "WorkspaceCooplayPowerCold",
+                "WorkspaceCooplayPowerWaking",
+                "WorkspaceCooplayPowerSleeping",
+                "WorkspaceCooplayPowerUnknown"
+            ]
+        },
+        "codersdk.WorkspaceCooplayRun": {
+            "type": "object",
+            "properties": {
+                "grant_id": {
+                    "description": "GrantID is the capability grant of a Run started under one.",
+                    "type": "string"
+                },
+                "harness": {
+                    "description": "Harness is the agent harness, for example claude-code.",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_event_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "mode": {
+                    "description": "Mode is where the harness runs: A inside the workspace, B outside.",
+                    "type": "string"
+                },
+                "started_by": {
+                    "enum": [
+                        "employee",
+                        "grant"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/codersdk.WorkspaceCooplayRunStarter"
+                        }
+                    ]
+                },
+                "state": {
+                    "enum": [
+                        "running",
+                        "waiting_model",
+                        "waiting_human",
+                        "idle",
+                        "done",
+                        "failed"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/codersdk.WorkspaceCooplayRunState"
+                        }
+                    ]
+                },
+                "waiting_reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "codersdk.WorkspaceCooplayRunStarter": {
+            "type": "string",
+            "enum": [
+                "employee",
+                "grant"
+            ],
+            "x-enum-varnames": [
+                "WorkspaceCooplayRunStartedByEmployee",
+                "WorkspaceCooplayRunStartedByGrant"
+            ]
+        },
+        "codersdk.WorkspaceCooplayRunState": {
+            "type": "string",
+            "enum": [
+                "running",
+                "waiting_model",
+                "waiting_human",
+                "idle",
+                "done",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "WorkspaceCooplayRunRunning",
+                "WorkspaceCooplayRunWaitingModel",
+                "WorkspaceCooplayRunWaitingHuman",
+                "WorkspaceCooplayRunIdle",
+                "WorkspaceCooplayRunDone",
+                "WorkspaceCooplayRunFailed"
+            ]
+        },
+        "codersdk.WorkspaceCooplaySource": {
+            "type": "object",
+            "properties": {
+                "clone_of_workspace_id": {
+                    "type": "string"
+                },
+                "grant_expires_at": {
+                    "description": "GrantExpiresAt and GrantRevokedAt describe the grant, when Coder\nknows it.",
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "grant_id": {
+                    "description": "GrantID is the capability grant the workspace was created under.",
+                    "type": "string"
+                },
+                "grant_revoked_at": {
+                    "type": "string",
+                    "format": "date-time"
+                },
+                "harness": {
+                    "description": "Harness is the agent harness that created the workspace.",
+                    "type": "string"
+                },
+                "initiator_workspace_id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "enum": [
+                        "employee",
+                        "agent_grant"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/codersdk.WorkspaceCooplaySourceKind"
+                        }
+                    ]
+                },
+                "run_id": {
+                    "description": "RunID is the agent Run that created the workspace.",
+                    "type": "string"
+                }
+            }
+        },
+        "codersdk.WorkspaceCooplaySourceKind": {
+            "type": "string",
+            "enum": [
+                "employee",
+                "agent_grant"
+            ],
+            "x-enum-varnames": [
+                "WorkspaceCooplaySourceEmployee",
+                "WorkspaceCooplaySourceAgentGrant"
+            ]
         },
         "codersdk.WorkspaceDeploymentStats": {
             "type": "object",

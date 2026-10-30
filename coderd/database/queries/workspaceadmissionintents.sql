@@ -2,7 +2,8 @@
 -- Returns what the wake intent recorder needs to decide whether a connection
 -- to an agent should wake its workspace: whether the template is managed,
 -- whether the agent belongs to a succeeded START that is the latest build,
--- the agent connection state and the power state the controller reported.
+-- the agent connection state and the power state the controller reported,
+-- which is absent while the controller reports the workspace as off.
 SELECT
 	w.id AS workspace_id,
 	w.organization_id,
@@ -37,7 +38,7 @@ JOIN
 LEFT JOIN
 	workspace_admission_templates wat ON wat.template_id = w.template_id
 LEFT JOIN
-	workspace_admission_workspace_states wss ON wss.workspace_id = w.id
+	workspace_admission_workspace_states wss ON wss.workspace_id = w.id AND wss.off_at IS NULL
 WHERE
 	wa.id = @agent_id;
 

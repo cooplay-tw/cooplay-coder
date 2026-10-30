@@ -3986,6 +3986,7 @@ CREATE TABLE workspace_admission_workspace_states (
     git jsonb,
     pr jsonb,
     last_sample jsonb,
+    off_at timestamp with time zone,
     updated_at timestamp with time zone NOT NULL,
     CONSTRAINT workspace_admission_workspace_states_facts_check CHECK ((((last_job IS NULL) OR (jsonb_typeof(last_job) = 'object'::text)) AND ((git IS NULL) OR (jsonb_typeof(git) = 'object'::text)) AND ((pr IS NULL) OR (jsonb_typeof(pr) = 'object'::text)))),
     CONSTRAINT workspace_admission_workspace_states_generation_check CHECK ((generation >= 0)),
@@ -3999,11 +4000,13 @@ CASE
 END)
 );
 
-COMMENT ON TABLE workspace_admission_workspace_states IS 'Power state, runs and facts of managed workspaces as pushed by the controller, for display. The controller is authoritative; a missing row means off or not reported.';
+COMMENT ON TABLE workspace_admission_workspace_states IS 'Power state, runs and facts of managed workspaces as pushed by the controller, for display. The controller is authoritative; a missing row means not reported, a row with off_at means off.';
 
 COMMENT ON COLUMN workspace_admission_workspace_states.power_epoch IS 'Controller power epoch of the state. Updates with a lower epoch are rejected; an equal epoch may update runs, job, facts and notices.';
 
 COMMENT ON COLUMN workspace_admission_workspace_states.sleep_notice_at IS 'Time of a pending policy sleep. The workspace page offers a keepalive while it is set.';
+
+COMMENT ON COLUMN workspace_admission_workspace_states.off_at IS 'Set when the controller reported the workspace as off. The row then only keeps power_epoch, so that a delayed older state is still rejected, and readers treat it as absent. A newer state clears it.';
 
 CREATE TABLE workspace_agent_context_resources (
     workspace_agent_id uuid NOT NULL,

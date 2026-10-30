@@ -169,6 +169,8 @@ func (s *Server) Handler() http.Handler {
 				r.Get("/", s.showWorkspace)
 				r.Post("/stop", s.stopWorkspace)
 				r.Post("/delete", s.deleteWorkspace)
+				r.Put("/state", s.putWorkspaceState)
+				r.Delete("/state", s.deleteWorkspaceState)
 			})
 		})
 		r.Route("/grants/{grant_id}", func(r chi.Router) {

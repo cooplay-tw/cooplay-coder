@@ -2,12 +2,14 @@ package admissionapi
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/coder/coder/v2/coderd/database"
+	"github.com/coder/coder/v2/codersdk"
 )
 
 // Error codes returned in ErrorResponse.Code.
@@ -54,6 +56,9 @@ const (
 	// CodeGrantQuota means the grant already has max_workspaces live
 	// workspaces.
 	CodeGrantQuota = "grant_quota"
+	// CodeStalePowerEpoch means Coder already stores the power state of
+	// the workspace at a newer power epoch.
+	CodeStalePowerEpoch = "stale_power_epoch"
 )
 
 // ErrorResponse is the body of every non-2xx response.
@@ -519,6 +524,32 @@ type AckKeepaliveIntentRequest struct {
 	Until *time.Time `json:"until,omitempty"`
 	// Result is applied or denied.
 	Result string `json:"result"`
+}
+
+// WorkspaceCooplayState is the body of PUT /v1/workspaces/{id}/state: the
+// power state of a managed workspace, its agent Runs and the facts the
+// workspace page shows. Coder stores it compare-and-set on PowerEpoch: an
+// older epoch than the stored one is rejected, an equal or newer one
+// replaces the whole state.
+type WorkspaceCooplayState struct {
+	// PowerState is running, reduced, paused, hibernated, cold, waking,
+	// sleeping or unknown.
+	PowerState codersdk.WorkspaceCooplayPowerState `json:"power_state"`
+	PowerEpoch int64                               `json:"power_epoch"`
+	Generation int64                               `json:"generation"`
+	Since      time.Time                           `json:"since"`
+	Reason     string                              `json:"reason"`
+	// SleepNoticeAt is a pending policy sleep. The workspace page offers a
+	// keepalive while it is set.
+	SleepNoticeAt  *time.Time                     `json:"sleep_notice_at,omitempty"`
+	KeepaliveUntil *time.Time                     `json:"keepalive_until,omitempty"`
+	Runs           []codersdk.WorkspaceCooplayRun `json:"runs,omitempty"`
+	LastJob        *codersdk.WorkspaceCooplayJob  `json:"last_job,omitempty"`
+	Git            *codersdk.WorkspaceCooplayGit  `json:"git,omitempty"`
+	PR             *codersdk.WorkspaceCooplayPR   `json:"pr,omitempty"`
+	// LastSample is a memory and CPU summary with its time, at most 4096
+	// bytes. Coder stores it and does not interpret it.
+	LastSample json.RawMessage `json:"last_sample,omitempty"`
 }
 
 func timePtr(t sql.NullTime) *time.Time {

@@ -2130,6 +2130,13 @@ func (q *querier) ClearWorkspaceAdmissionBuildDeadlines(ctx context.Context, arg
 	return q.db.ClearWorkspaceAdmissionBuildDeadlines(ctx, arg)
 }
 
+func (q *querier) ClearWorkspaceAdmissionWorkspaceState(ctx context.Context, arg database.ClearWorkspaceAdmissionWorkspaceStateParams) (int64, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return 0, err
+	}
+	return q.db.ClearWorkspaceAdmissionWorkspaceState(ctx, arg)
+}
+
 func (q *querier) ClearWorkspaceAdmissionWorkspaceTTLs(ctx context.Context, templateID uuid.UUID) (int64, error) {
 	// The query only matches managed templates, so the admission service
 	// cannot change the schedule of other templates through it.
@@ -5671,6 +5678,16 @@ func (q *querier) GetWorkspaceACLByID(ctx context.Context, id uuid.UUID) (databa
 	return q.db.GetWorkspaceACLByID(ctx, id)
 }
 
+func (q *querier) GetWorkspaceAdmissionCooplayByWorkspaceIDs(ctx context.Context, workspaceIDs []uuid.UUID) ([]database.GetWorkspaceAdmissionCooplayByWorkspaceIDsRow, error) {
+	// Callers read the workspaces through the requester's own
+	// authorization first and pass only those IDs, like the admissions of
+	// workspace builds.
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return nil, err
+	}
+	return q.db.GetWorkspaceAdmissionCooplayByWorkspaceIDs(ctx, workspaceIDs)
+}
+
 func (q *querier) GetWorkspaceAdmissionCreateOperationByOperationID(ctx context.Context, operationID uuid.UUID) (database.WorkspaceAdmissionCreateOperation, error) {
 	return fetch(q.log, q.auth, q.db.GetWorkspaceAdmissionCreateOperationByOperationID)(ctx, operationID)
 }
@@ -5774,6 +5791,13 @@ func (q *querier) GetWorkspaceAdmissionWorkspaceAgents(ctx context.Context, work
 		return nil, err
 	}
 	return q.db.GetWorkspaceAdmissionWorkspaceAgents(ctx, workspaceID)
+}
+
+func (q *querier) GetWorkspaceAdmissionWorkspaceStateByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (database.WorkspaceAdmissionWorkspaceState, error) {
+	if err := q.authorizeContext(ctx, policy.ActionRead, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.WorkspaceAdmissionWorkspaceState{}, err
+	}
+	return q.db.GetWorkspaceAdmissionWorkspaceStateByWorkspaceID(ctx, workspaceID)
 }
 
 func (q *querier) GetWorkspaceAdmissionWorkspaces(ctx context.Context, workspaceID uuid.UUID) ([]database.GetWorkspaceAdmissionWorkspacesRow, error) {
@@ -9812,6 +9836,13 @@ func (q *querier) UpsertWorkspaceAdmissionTemplate(ctx context.Context, arg data
 func (q *querier) UpsertWorkspaceAdmissionWakeIntent(ctx context.Context, arg database.UpsertWorkspaceAdmissionWakeIntentParams) (database.WorkspaceAdmissionWakeIntent, error) {
 	obj := rbac.ResourceWorkspaceAdmission.WithID(arg.WorkspaceID).InOrg(arg.OrganizationID)
 	return insert(q.log, q.auth, obj, q.db.UpsertWorkspaceAdmissionWakeIntent)(ctx, arg)
+}
+
+func (q *querier) UpsertWorkspaceAdmissionWorkspaceState(ctx context.Context, arg database.UpsertWorkspaceAdmissionWorkspaceStateParams) (database.WorkspaceAdmissionWorkspaceState, error) {
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return database.WorkspaceAdmissionWorkspaceState{}, err
+	}
+	return q.db.UpsertWorkspaceAdmissionWorkspaceState(ctx, arg)
 }
 
 func (q *querier) UpsertWorkspaceAgentContextResource(ctx context.Context, arg database.UpsertWorkspaceAgentContextResourceParams) (database.WorkspaceAgentContextResource, error) {

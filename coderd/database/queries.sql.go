@@ -33101,7 +33101,7 @@ JOIN
 LEFT JOIN
 	workspace_admission_templates wat ON wat.template_id = w.template_id
 LEFT JOIN
-	workspace_admission_workspace_states wss ON wss.workspace_id = w.id
+	workspace_admission_workspace_states wss ON wss.workspace_id = w.id AND wss.off_at IS NULL
 WHERE
 	wa.id = $1
 `
@@ -33122,7 +33122,8 @@ type GetWorkspaceAdmissionWakeTargetByAgentIDRow struct {
 // Returns what the wake intent recorder needs to decide whether a connection
 // to an agent should wake its workspace: whether the template is managed,
 // whether the agent belongs to a succeeded START that is the latest build,
-// the agent connection state and the power state the controller reported.
+// the agent connection state and the power state the controller reported,
+// which is absent while the controller reports the workspace as off.
 func (q *sqlQuerier) GetWorkspaceAdmissionWakeTargetByAgentID(ctx context.Context, agentID uuid.UUID) (GetWorkspaceAdmissionWakeTargetByAgentIDRow, error) {
 	row := q.db.QueryRowContext(ctx, getWorkspaceAdmissionWakeTargetByAgentID, agentID)
 	var i GetWorkspaceAdmissionWakeTargetByAgentIDRow
@@ -35175,6 +35176,280 @@ func (q *sqlQuerier) UpsertWorkspaceAdmissionTemplate(ctx context.Context, arg U
 		&i.OrganizationID,
 		&i.ProfileParameter,
 		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const clearWorkspaceAdmissionWorkspaceState = `-- name: ClearWorkspaceAdmissionWorkspaceState :execrows
+UPDATE
+	workspace_admission_workspace_states
+SET
+	off_at = $1::timestamptz,
+	updated_at = GREATEST($1::timestamptz, updated_at + INTERVAL '1 microsecond')
+WHERE
+	workspace_id = $2
+	AND off_at IS NULL
+`
+
+type ClearWorkspaceAdmissionWorkspaceStateParams struct {
+	Now         time.Time `db:"now" json:"now"`
+	WorkspaceID uuid.UUID `db:"workspace_id" json:"workspace_id"`
+}
+
+// Records that the controller reports a managed workspace as off. The row
+// keeps its power_epoch so that a delayed older state is still rejected.
+// Clearing a state that is already off changes nothing.
+func (q *sqlQuerier) ClearWorkspaceAdmissionWorkspaceState(ctx context.Context, arg ClearWorkspaceAdmissionWorkspaceStateParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearWorkspaceAdmissionWorkspaceState, arg.Now, arg.WorkspaceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const getWorkspaceAdmissionCooplayByWorkspaceIDs = `-- name: GetWorkspaceAdmissionCooplayByWorkspaceIDs :many
+SELECT
+	w.id AS workspace_id,
+	wss.power_state,
+	wss.since AS power_since,
+	wss.reason AS power_reason,
+	wss.sleep_notice_at,
+	wss.keepalive_until,
+	wss.runs,
+	wss.last_job,
+	wss.git,
+	wss.pr,
+	wco.source AS create_source,
+	wag.expires_at AS grant_expires_at,
+	wag.revoked_at AS grant_revoked_at
+FROM
+	workspaces w
+LEFT JOIN
+	workspace_admission_workspace_states wss ON wss.workspace_id = w.id AND wss.off_at IS NULL
+LEFT JOIN
+	workspace_admission_create_operations wco ON wco.workspace_id = w.id
+LEFT JOIN
+	workspace_admission_grants wag ON wag.id = wco.grant_id
+WHERE
+	w.id = ANY($1 :: uuid[])
+	AND (wss.workspace_id IS NOT NULL OR wco.workspace_id IS NOT NULL)
+`
+
+type GetWorkspaceAdmissionCooplayByWorkspaceIDsRow struct {
+	WorkspaceID    uuid.UUID             `db:"workspace_id" json:"workspace_id"`
+	PowerState     sql.NullString        `db:"power_state" json:"power_state"`
+	PowerSince     sql.NullTime          `db:"power_since" json:"power_since"`
+	PowerReason    sql.NullString        `db:"power_reason" json:"power_reason"`
+	SleepNoticeAt  sql.NullTime          `db:"sleep_notice_at" json:"sleep_notice_at"`
+	KeepaliveUntil sql.NullTime          `db:"keepalive_until" json:"keepalive_until"`
+	Runs           pqtype.NullRawMessage `db:"runs" json:"runs"`
+	LastJob        pqtype.NullRawMessage `db:"last_job" json:"last_job"`
+	Git            pqtype.NullRawMessage `db:"git" json:"git"`
+	Pr             pqtype.NullRawMessage `db:"pr" json:"pr"`
+	CreateSource   pqtype.NullRawMessage `db:"create_source" json:"create_source"`
+	GrantExpiresAt sql.NullTime          `db:"grant_expires_at" json:"grant_expires_at"`
+	GrantRevokedAt sql.NullTime          `db:"grant_revoked_at" json:"grant_revoked_at"`
+}
+
+// Returns what the workspace page shows about managed workspaces: the power
+// state, runs and facts the controller reported, which are absent while it
+// reports the workspace as off, and how the controller created the
+// workspace, with the scope mirror of the grant it was created under.
+// Workspaces with neither are omitted.
+func (q *sqlQuerier) GetWorkspaceAdmissionCooplayByWorkspaceIDs(ctx context.Context, workspaceIds []uuid.UUID) ([]GetWorkspaceAdmissionCooplayByWorkspaceIDsRow, error) {
+	rows, err := q.db.QueryContext(ctx, getWorkspaceAdmissionCooplayByWorkspaceIDs, pq.Array(workspaceIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetWorkspaceAdmissionCooplayByWorkspaceIDsRow
+	for rows.Next() {
+		var i GetWorkspaceAdmissionCooplayByWorkspaceIDsRow
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.PowerState,
+			&i.PowerSince,
+			&i.PowerReason,
+			&i.SleepNoticeAt,
+			&i.KeepaliveUntil,
+			&i.Runs,
+			&i.LastJob,
+			&i.Git,
+			&i.Pr,
+			&i.CreateSource,
+			&i.GrantExpiresAt,
+			&i.GrantRevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getWorkspaceAdmissionWorkspaceStateByWorkspaceID = `-- name: GetWorkspaceAdmissionWorkspaceStateByWorkspaceID :one
+SELECT
+	workspace_id, organization_id, power_state, power_epoch, generation, since, reason, sleep_notice_at, keepalive_until, runs, last_job, git, pr, last_sample, off_at, updated_at
+FROM
+	workspace_admission_workspace_states
+WHERE
+	workspace_id = $1
+`
+
+// Returns the stored state of a managed workspace, also while the
+// controller reports it as off.
+func (q *sqlQuerier) GetWorkspaceAdmissionWorkspaceStateByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (WorkspaceAdmissionWorkspaceState, error) {
+	row := q.db.QueryRowContext(ctx, getWorkspaceAdmissionWorkspaceStateByWorkspaceID, workspaceID)
+	var i WorkspaceAdmissionWorkspaceState
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.OrganizationID,
+		&i.PowerState,
+		&i.PowerEpoch,
+		&i.Generation,
+		&i.Since,
+		&i.Reason,
+		&i.SleepNoticeAt,
+		&i.KeepaliveUntil,
+		&i.Runs,
+		&i.LastJob,
+		&i.Git,
+		&i.Pr,
+		&i.LastSample,
+		&i.OffAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const upsertWorkspaceAdmissionWorkspaceState = `-- name: UpsertWorkspaceAdmissionWorkspaceState :one
+INSERT INTO workspace_admission_workspace_states (
+	workspace_id,
+	organization_id,
+	power_state,
+	power_epoch,
+	generation,
+	since,
+	reason,
+	sleep_notice_at,
+	keepalive_until,
+	runs,
+	last_job,
+	git,
+	pr,
+	last_sample,
+	off_at,
+	updated_at
+) VALUES (
+	$1,
+	$2,
+	$3,
+	$4,
+	$5,
+	$6,
+	$7,
+	$8,
+	$9,
+	$10,
+	$11,
+	$12,
+	$13,
+	$14,
+	NULL,
+	$15
+)
+ON CONFLICT (workspace_id) DO UPDATE SET
+	organization_id = EXCLUDED.organization_id,
+	power_state = EXCLUDED.power_state,
+	power_epoch = EXCLUDED.power_epoch,
+	generation = EXCLUDED.generation,
+	since = EXCLUDED.since,
+	reason = EXCLUDED.reason,
+	sleep_notice_at = EXCLUDED.sleep_notice_at,
+	keepalive_until = EXCLUDED.keepalive_until,
+	runs = EXCLUDED.runs,
+	last_job = EXCLUDED.last_job,
+	git = EXCLUDED.git,
+	pr = EXCLUDED.pr,
+	last_sample = EXCLUDED.last_sample,
+	off_at = NULL,
+	updated_at = GREATEST(
+		EXCLUDED.updated_at,
+		workspace_admission_workspace_states.updated_at + INTERVAL '1 microsecond'
+	)
+WHERE
+	workspace_admission_workspace_states.power_epoch <= EXCLUDED.power_epoch
+RETURNING
+	workspace_id, organization_id, power_state, power_epoch, generation, since, reason, sleep_notice_at, keepalive_until, runs, last_job, git, pr, last_sample, off_at, updated_at
+`
+
+type UpsertWorkspaceAdmissionWorkspaceStateParams struct {
+	WorkspaceID    uuid.UUID             `db:"workspace_id" json:"workspace_id"`
+	OrganizationID uuid.UUID             `db:"organization_id" json:"organization_id"`
+	PowerState     string                `db:"power_state" json:"power_state"`
+	PowerEpoch     int64                 `db:"power_epoch" json:"power_epoch"`
+	Generation     int64                 `db:"generation" json:"generation"`
+	Since          time.Time             `db:"since" json:"since"`
+	Reason         string                `db:"reason" json:"reason"`
+	SleepNoticeAt  sql.NullTime          `db:"sleep_notice_at" json:"sleep_notice_at"`
+	KeepaliveUntil sql.NullTime          `db:"keepalive_until" json:"keepalive_until"`
+	Runs           json.RawMessage       `db:"runs" json:"runs"`
+	LastJob        pqtype.NullRawMessage `db:"last_job" json:"last_job"`
+	Git            pqtype.NullRawMessage `db:"git" json:"git"`
+	Pr             pqtype.NullRawMessage `db:"pr" json:"pr"`
+	LastSample     pqtype.NullRawMessage `db:"last_sample" json:"last_sample"`
+	UpdatedAt      time.Time             `db:"updated_at" json:"updated_at"`
+}
+
+// Stores the power state, runs and facts the controller pushed for a managed
+// workspace, compare-and-set on power_epoch. A state with an older epoch
+// than the stored one, including the epoch kept while the controller
+// reports the workspace as off, changes nothing and returns no row. An
+// equal epoch replaces the state, for example when a wake finishes or the
+// runs change. updated_at strictly increases so the admission change cursor
+// moves with every accepted state.
+func (q *sqlQuerier) UpsertWorkspaceAdmissionWorkspaceState(ctx context.Context, arg UpsertWorkspaceAdmissionWorkspaceStateParams) (WorkspaceAdmissionWorkspaceState, error) {
+	row := q.db.QueryRowContext(ctx, upsertWorkspaceAdmissionWorkspaceState,
+		arg.WorkspaceID,
+		arg.OrganizationID,
+		arg.PowerState,
+		arg.PowerEpoch,
+		arg.Generation,
+		arg.Since,
+		arg.Reason,
+		arg.SleepNoticeAt,
+		arg.KeepaliveUntil,
+		arg.Runs,
+		arg.LastJob,
+		arg.Git,
+		arg.Pr,
+		arg.LastSample,
+		arg.UpdatedAt,
+	)
+	var i WorkspaceAdmissionWorkspaceState
+	err := row.Scan(
+		&i.WorkspaceID,
+		&i.OrganizationID,
+		&i.PowerState,
+		&i.PowerEpoch,
+		&i.Generation,
+		&i.Since,
+		&i.Reason,
+		&i.SleepNoticeAt,
+		&i.KeepaliveUntil,
+		&i.Runs,
+		&i.LastJob,
+		&i.Git,
+		&i.Pr,
+		&i.LastSample,
+		&i.OffAt,
 		&i.UpdatedAt,
 	)
 	return i, err

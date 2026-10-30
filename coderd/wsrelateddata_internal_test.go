@@ -32,6 +32,7 @@ func TestAllWorkspaceRelated(t *testing.T) {
 	require.True(t, all.LatestBuild.Resources.Agents.Scripts)
 	require.True(t, all.LatestBuild.Resources.Agents.LogSources)
 	require.True(t, all.LatestBuild.appStatuses())
+	require.True(t, all.Cooplay)
 }
 
 // TestLatestBuildRelatedAppStatuses verifies the nil-safe appStatuses accessor
@@ -294,6 +295,14 @@ func TestWorkspaceDataQueryGating(t *testing.T) {
 				// No builds returned, so no build-subtree queries run.
 				db.EXPECT().GetLatestWorkspaceBuildsByWorkspaceIDs(gomock.Any(), gomock.Any()).
 					Return([]database.WorkspaceBuild{}, nil)
+			},
+		},
+		{
+			name: "Cooplay",
+			cfg:  workspaceRelated{Cooplay: true},
+			setup: func(db *dbmock.MockStore) {
+				db.EXPECT().GetWorkspaceAdmissionCooplayByWorkspaceIDs(gomock.Any(), []uuid.UUID{workspace.ID}).
+					Return([]database.GetWorkspaceAdmissionCooplayByWorkspaceIDsRow{}, nil)
 			},
 		},
 		{

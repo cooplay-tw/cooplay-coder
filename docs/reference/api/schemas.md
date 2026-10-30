@@ -17224,6 +17224,65 @@ If the schedule is empty, the user will be updated to use the default schedule.|
   "allow_renames": true,
   "automatic_updates": "always",
   "autostart_schedule": "string",
+  "cooplay": {
+    "git": {
+      "ahead": 0,
+      "base": "string",
+      "behind": 0,
+      "branch": "string",
+      "dirty": true,
+      "merge_conflict": true,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "uncommitted_files": 0
+    },
+    "keepalive_until": "2019-08-24T14:15:22Z",
+    "last_job": {
+      "argv_summary": "string",
+      "artifacts_path": "string",
+      "ended_at": "2019-08-24T14:15:22Z",
+      "exit_code": 0,
+      "id": "string",
+      "kind": "string",
+      "name": "string",
+      "run_id": "string",
+      "started_at": "2019-08-24T14:15:22Z"
+    },
+    "power": {
+      "reason": "string",
+      "since": "2019-08-24T14:15:22Z",
+      "state": "running"
+    },
+    "pr": {
+      "ci": "string",
+      "number": 0,
+      "reported_at": "2019-08-24T14:15:22Z",
+      "state": "string",
+      "url": "string"
+    },
+    "runs": [
+      {
+        "grant_id": "string",
+        "harness": "string",
+        "id": "string",
+        "last_event_at": "2019-08-24T14:15:22Z",
+        "mode": "string",
+        "started_by": "employee",
+        "state": "running",
+        "waiting_reason": "string"
+      }
+    ],
+    "sleep_notice_at": "2019-08-24T14:15:22Z",
+    "source": {
+      "clone_of_workspace_id": "string",
+      "grant_expires_at": "2019-08-24T14:15:22Z",
+      "grant_id": "string",
+      "grant_revoked_at": "2019-08-24T14:15:22Z",
+      "harness": "string",
+      "initiator_workspace_id": "string",
+      "kind": "employee",
+      "run_id": "string"
+    }
+  },
   "created_at": "2019-08-24T14:15:22Z",
   "deleting_at": "2019-08-24T14:15:22Z",
   "dormant_at": "2019-08-24T14:15:22Z",
@@ -17525,6 +17584,7 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 | `allow_renames`                             | boolean                                                                 | false    |              |                                                                                                                                                                                                                                                                                                                                             |
 | `automatic_updates`                         | [codersdk.AutomaticUpdates](#codersdkautomaticupdates)                  | false    |              |                                                                                                                                                                                                                                                                                                                                             |
 | `autostart_schedule`                        | string                                                                  | false    |              |                                                                                                                                                                                                                                                                                                                                             |
+| `cooplay`                                   | [codersdk.WorkspaceCooplay](#codersdkworkspacecooplay)                  | false    |              | Cooplay is what the platform controller reports about a workspace of a template managed by workspace admission. It is omitted for other workspaces and while the controller reports nothing.                                                                                                                                                |
 | `created_at`                                | string                                                                  | false    |              |                                                                                                                                                                                                                                                                                                                                             |
 | `deleting_at`                               | string                                                                  | false    |              | Deleting at indicates the time at which the workspace will be permanently deleted. A workspace is eligible for deletion if it is dormant (a non-nil dormant_at value) and a value has been specified for time_til_dormant_autodelete on its template.                                                                                       |
 | `dormant_at`                                | string                                                                  | false    |              | Dormant at being non-nil indicates a workspace that is dormant. A dormant workspace is no longer accessible must be activated. It is subject to deletion if it breaches the duration of the time_til_ field on its template.                                                                                                                |
@@ -19050,6 +19110,141 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 | `p50` | number | false    |              |             |
 | `p95` | number | false    |              |             |
 
+## codersdk.WorkspaceCooplay
+
+```json
+{
+  "git": {
+    "ahead": 0,
+    "base": "string",
+    "behind": 0,
+    "branch": "string",
+    "dirty": true,
+    "merge_conflict": true,
+    "reported_at": "2019-08-24T14:15:22Z",
+    "uncommitted_files": 0
+  },
+  "keepalive_until": "2019-08-24T14:15:22Z",
+  "last_job": {
+    "argv_summary": "string",
+    "artifacts_path": "string",
+    "ended_at": "2019-08-24T14:15:22Z",
+    "exit_code": 0,
+    "id": "string",
+    "kind": "string",
+    "name": "string",
+    "run_id": "string",
+    "started_at": "2019-08-24T14:15:22Z"
+  },
+  "power": {
+    "reason": "string",
+    "since": "2019-08-24T14:15:22Z",
+    "state": "running"
+  },
+  "pr": {
+    "ci": "string",
+    "number": 0,
+    "reported_at": "2019-08-24T14:15:22Z",
+    "state": "string",
+    "url": "string"
+  },
+  "runs": [
+    {
+      "grant_id": "string",
+      "harness": "string",
+      "id": "string",
+      "last_event_at": "2019-08-24T14:15:22Z",
+      "mode": "string",
+      "started_by": "employee",
+      "state": "running",
+      "waiting_reason": "string"
+    }
+  ],
+  "sleep_notice_at": "2019-08-24T14:15:22Z",
+  "source": {
+    "clone_of_workspace_id": "string",
+    "grant_expires_at": "2019-08-24T14:15:22Z",
+    "grant_id": "string",
+    "grant_revoked_at": "2019-08-24T14:15:22Z",
+    "harness": "string",
+    "initiator_workspace_id": "string",
+    "kind": "employee",
+    "run_id": "string"
+  }
+}
+```
+
+### Properties
+
+| Name              | Type                                                                  | Required | Restrictions | Description                                                                                               |
+|-------------------|-----------------------------------------------------------------------|----------|--------------|-----------------------------------------------------------------------------------------------------------|
+| `git`             | [codersdk.WorkspaceCooplayGit](#codersdkworkspacecooplaygit)          | false    |              |                                                                                                           |
+| `keepalive_until` | string                                                                | false    |              | Keepalive until is the end of an applied keepalive.                                                       |
+| `last_job`        | [codersdk.WorkspaceCooplayJob](#codersdkworkspacecooplayjob)          | false    |              |                                                                                                           |
+| `power`           | [codersdk.WorkspaceCooplayPower](#codersdkworkspacecooplaypower)      | false    |              | Power is omitted while the platform reports no power state, for example while the workspace is stopped.   |
+| `pr`              | [codersdk.WorkspaceCooplayPR](#codersdkworkspacecooplaypr)            | false    |              |                                                                                                           |
+| `runs`            | array of [codersdk.WorkspaceCooplayRun](#codersdkworkspacecooplayrun) | false    |              |                                                                                                           |
+| `sleep_notice_at` | string                                                                | false    |              | Sleep notice at is the time of a pending sleep. Until then a keepalive request keeps the workspace awake. |
+| `source`          | [codersdk.WorkspaceCooplaySource](#codersdkworkspacecooplaysource)    | false    |              | Source is set for workspaces the platform controller created.                                             |
+
+## codersdk.WorkspaceCooplayGit
+
+```json
+{
+  "ahead": 0,
+  "base": "string",
+  "behind": 0,
+  "branch": "string",
+  "dirty": true,
+  "merge_conflict": true,
+  "reported_at": "2019-08-24T14:15:22Z",
+  "uncommitted_files": 0
+}
+```
+
+### Properties
+
+| Name                | Type    | Required | Restrictions | Description |
+|---------------------|---------|----------|--------------|-------------|
+| `ahead`             | integer | false    |              |             |
+| `base`              | string  | false    |              |             |
+| `behind`            | integer | false    |              |             |
+| `branch`            | string  | false    |              |             |
+| `dirty`             | boolean | false    |              |             |
+| `merge_conflict`    | boolean | false    |              |             |
+| `reported_at`       | string  | false    |              |             |
+| `uncommitted_files` | integer | false    |              |             |
+
+## codersdk.WorkspaceCooplayJob
+
+```json
+{
+  "argv_summary": "string",
+  "artifacts_path": "string",
+  "ended_at": "2019-08-24T14:15:22Z",
+  "exit_code": 0,
+  "id": "string",
+  "kind": "string",
+  "name": "string",
+  "run_id": "string",
+  "started_at": "2019-08-24T14:15:22Z"
+}
+```
+
+### Properties
+
+| Name             | Type    | Required | Restrictions | Description |
+|------------------|---------|----------|--------------|-------------|
+| `argv_summary`   | string  | false    |              |             |
+| `artifacts_path` | string  | false    |              |             |
+| `ended_at`       | string  | false    |              |             |
+| `exit_code`      | integer | false    |              |             |
+| `id`             | string  | false    |              |             |
+| `kind`           | string  | false    |              |             |
+| `name`           | string  | false    |              |             |
+| `run_id`         | string  | false    |              |             |
+| `started_at`     | string  | false    |              |             |
+
 ## codersdk.WorkspaceCooplayKeepaliveRequest
 
 ```json
@@ -19079,6 +19274,177 @@ If the schedule is empty, the user will be updated to use the default schedule.|
 |----------------|---------|----------|--------------|-------------|
 | `for_seconds`  | integer | false    |              |             |
 | `requested_at` | string  | false    |              |             |
+
+## codersdk.WorkspaceCooplayPR
+
+```json
+{
+  "ci": "string",
+  "number": 0,
+  "reported_at": "2019-08-24T14:15:22Z",
+  "state": "string",
+  "url": "string"
+}
+```
+
+### Properties
+
+| Name          | Type    | Required | Restrictions | Description |
+|---------------|---------|----------|--------------|-------------|
+| `ci`          | string  | false    |              |             |
+| `number`      | integer | false    |              |             |
+| `reported_at` | string  | false    |              |             |
+| `state`       | string  | false    |              |             |
+| `url`         | string  | false    |              |             |
+
+## codersdk.WorkspaceCooplayPower
+
+```json
+{
+  "reason": "string",
+  "since": "2019-08-24T14:15:22Z",
+  "state": "running"
+}
+```
+
+### Properties
+
+| Name     | Type                                                                       | Required | Restrictions | Description                                                   |
+|----------|----------------------------------------------------------------------------|----------|--------------|---------------------------------------------------------------|
+| `reason` | string                                                                     | false    |              | Reason is the platform reason of the state, for example idle. |
+| `since`  | string                                                                     | false    |              | Since is when the microVM entered the state.                  |
+| `state`  | [codersdk.WorkspaceCooplayPowerState](#codersdkworkspacecooplaypowerstate) | false    |              |                                                               |
+
+#### Enumerated Values
+
+| Property | Value(s)                                                                              |
+|----------|---------------------------------------------------------------------------------------|
+| `state`  | `cold`, `hibernated`, `paused`, `reduced`, `running`, `sleeping`, `unknown`, `waking` |
+
+## codersdk.WorkspaceCooplayPowerState
+
+```json
+"running"
+```
+
+### Properties
+
+#### Enumerated Values
+
+| Value(s)                                                                              |
+|---------------------------------------------------------------------------------------|
+| `cold`, `hibernated`, `paused`, `reduced`, `running`, `sleeping`, `unknown`, `waking` |
+
+## codersdk.WorkspaceCooplayRun
+
+```json
+{
+  "grant_id": "string",
+  "harness": "string",
+  "id": "string",
+  "last_event_at": "2019-08-24T14:15:22Z",
+  "mode": "string",
+  "started_by": "employee",
+  "state": "running",
+  "waiting_reason": "string"
+}
+```
+
+### Properties
+
+| Name             | Type                                                                       | Required | Restrictions | Description                                                        |
+|------------------|----------------------------------------------------------------------------|----------|--------------|--------------------------------------------------------------------|
+| `grant_id`       | string                                                                     | false    |              | Grant ID is the capability grant of a Run started under one.       |
+| `harness`        | string                                                                     | false    |              | Harness is the agent harness, for example claude-code.             |
+| `id`             | string                                                                     | false    |              |                                                                    |
+| `last_event_at`  | string                                                                     | false    |              |                                                                    |
+| `mode`           | string                                                                     | false    |              | Mode is where the harness runs: A inside the workspace, B outside. |
+| `started_by`     | [codersdk.WorkspaceCooplayRunStarter](#codersdkworkspacecooplayrunstarter) | false    |              |                                                                    |
+| `state`          | [codersdk.WorkspaceCooplayRunState](#codersdkworkspacecooplayrunstate)     | false    |              |                                                                    |
+| `waiting_reason` | string                                                                     | false    |              |                                                                    |
+
+#### Enumerated Values
+
+| Property     | Value(s)                                                              |
+|--------------|-----------------------------------------------------------------------|
+| `started_by` | `employee`, `grant`                                                   |
+| `state`      | `done`, `failed`, `idle`, `running`, `waiting_human`, `waiting_model` |
+
+## codersdk.WorkspaceCooplayRunStarter
+
+```json
+"employee"
+```
+
+### Properties
+
+#### Enumerated Values
+
+| Value(s)            |
+|---------------------|
+| `employee`, `grant` |
+
+## codersdk.WorkspaceCooplayRunState
+
+```json
+"running"
+```
+
+### Properties
+
+#### Enumerated Values
+
+| Value(s)                                                              |
+|-----------------------------------------------------------------------|
+| `done`, `failed`, `idle`, `running`, `waiting_human`, `waiting_model` |
+
+## codersdk.WorkspaceCooplaySource
+
+```json
+{
+  "clone_of_workspace_id": "string",
+  "grant_expires_at": "2019-08-24T14:15:22Z",
+  "grant_id": "string",
+  "grant_revoked_at": "2019-08-24T14:15:22Z",
+  "harness": "string",
+  "initiator_workspace_id": "string",
+  "kind": "employee",
+  "run_id": "string"
+}
+```
+
+### Properties
+
+| Name                     | Type                                                                       | Required | Restrictions | Description                                                                  |
+|--------------------------|----------------------------------------------------------------------------|----------|--------------|------------------------------------------------------------------------------|
+| `clone_of_workspace_id`  | string                                                                     | false    |              |                                                                              |
+| `grant_expires_at`       | string                                                                     | false    |              | Grant expires at and GrantRevokedAt describe the grant, when Coder knows it. |
+| `grant_id`               | string                                                                     | false    |              | Grant ID is the capability grant the workspace was created under.            |
+| `grant_revoked_at`       | string                                                                     | false    |              |                                                                              |
+| `harness`                | string                                                                     | false    |              | Harness is the agent harness that created the workspace.                     |
+| `initiator_workspace_id` | string                                                                     | false    |              |                                                                              |
+| `kind`                   | [codersdk.WorkspaceCooplaySourceKind](#codersdkworkspacecooplaysourcekind) | false    |              |                                                                              |
+| `run_id`                 | string                                                                     | false    |              | Run ID is the agent Run that created the workspace.                          |
+
+#### Enumerated Values
+
+| Property | Value(s)                  |
+|----------|---------------------------|
+| `kind`   | `agent_grant`, `employee` |
+
+## codersdk.WorkspaceCooplaySourceKind
+
+```json
+"employee"
+```
+
+### Properties
+
+#### Enumerated Values
+
+| Value(s)                  |
+|---------------------------|
+| `agent_grant`, `employee` |
 
 ## codersdk.WorkspaceDeploymentStats
 
@@ -19581,6 +19947,65 @@ If the schedule is empty, the user will be updated to use the default schedule.|
       "allow_renames": true,
       "automatic_updates": "always",
       "autostart_schedule": "string",
+      "cooplay": {
+        "git": {
+          "ahead": 0,
+          "base": "string",
+          "behind": 0,
+          "branch": "string",
+          "dirty": true,
+          "merge_conflict": true,
+          "reported_at": "2019-08-24T14:15:22Z",
+          "uncommitted_files": 0
+        },
+        "keepalive_until": "2019-08-24T14:15:22Z",
+        "last_job": {
+          "argv_summary": "string",
+          "artifacts_path": "string",
+          "ended_at": "2019-08-24T14:15:22Z",
+          "exit_code": 0,
+          "id": "string",
+          "kind": "string",
+          "name": "string",
+          "run_id": "string",
+          "started_at": "2019-08-24T14:15:22Z"
+        },
+        "power": {
+          "reason": "string",
+          "since": "2019-08-24T14:15:22Z",
+          "state": "running"
+        },
+        "pr": {
+          "ci": "string",
+          "number": 0,
+          "reported_at": "2019-08-24T14:15:22Z",
+          "state": "string",
+          "url": "string"
+        },
+        "runs": [
+          {
+            "grant_id": "string",
+            "harness": "string",
+            "id": "string",
+            "last_event_at": "2019-08-24T14:15:22Z",
+            "mode": "string",
+            "started_by": "employee",
+            "state": "running",
+            "waiting_reason": "string"
+          }
+        ],
+        "sleep_notice_at": "2019-08-24T14:15:22Z",
+        "source": {
+          "clone_of_workspace_id": "string",
+          "grant_expires_at": "2019-08-24T14:15:22Z",
+          "grant_id": "string",
+          "grant_revoked_at": "2019-08-24T14:15:22Z",
+          "harness": "string",
+          "initiator_workspace_id": "string",
+          "kind": "employee",
+          "run_id": "string"
+        }
+      },
       "created_at": "2019-08-24T14:15:22Z",
       "deleting_at": "2019-08-24T14:15:22Z",
       "dormant_at": "2019-08-24T14:15:22Z",

@@ -118,6 +118,10 @@ type sqlcQuerier interface {
 	// template, so the lifecycle executor never stops a managed workspace on a
 	// schedule. Only managed templates match.
 	ClearWorkspaceAdmissionBuildDeadlines(ctx context.Context, arg ClearWorkspaceAdmissionBuildDeadlinesParams) (int64, error)
+	// Records that the controller reports a managed workspace as off. The row
+	// keeps its power_epoch so that a delayed older state is still rejected.
+	// Clearing a state that is already off changes nothing.
+	ClearWorkspaceAdmissionWorkspaceState(ctx context.Context, arg ClearWorkspaceAdmissionWorkspaceStateParams) (int64, error)
 	// Clears the TTL of every workspace of a managed template. Only managed
 	// templates match.
 	ClearWorkspaceAdmissionWorkspaceTTLs(ctx context.Context, templateID uuid.UUID) (int64, error)
@@ -1047,6 +1051,12 @@ type sqlcQuerier interface {
 	GetWebpushSubscriptionsByUserID(ctx context.Context, userID uuid.UUID) ([]WebpushSubscription, error)
 	GetWebpushVAPIDKeys(ctx context.Context) (GetWebpushVAPIDKeysRow, error)
 	GetWorkspaceACLByID(ctx context.Context, id uuid.UUID) (GetWorkspaceACLByIDRow, error)
+	// Returns what the workspace page shows about managed workspaces: the power
+	// state, runs and facts the controller reported, which are absent while it
+	// reports the workspace as off, and how the controller created the
+	// workspace, with the scope mirror of the grant it was created under.
+	// Workspaces with neither are omitted.
+	GetWorkspaceAdmissionCooplayByWorkspaceIDs(ctx context.Context, workspaceIds []uuid.UUID) ([]GetWorkspaceAdmissionCooplayByWorkspaceIDsRow, error)
 	GetWorkspaceAdmissionCreateOperationByOperationID(ctx context.Context, operationID uuid.UUID) (WorkspaceAdmissionCreateOperation, error)
 	GetWorkspaceAdmissionCreateOperationByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (WorkspaceAdmissionCreateOperation, error)
 	GetWorkspaceAdmissionDeleteOperationByOperationID(ctx context.Context, operationID uuid.UUID) (WorkspaceAdmissionDeleteOperation, error)
@@ -1074,12 +1084,16 @@ type sqlcQuerier interface {
 	// Returns what the wake intent recorder needs to decide whether a connection
 	// to an agent should wake its workspace: whether the template is managed,
 	// whether the agent belongs to a succeeded START that is the latest build,
-	// the agent connection state and the power state the controller reported.
+	// the agent connection state and the power state the controller reported,
+	// which is absent while the controller reports the workspace as off.
 	GetWorkspaceAdmissionWakeTargetByAgentID(ctx context.Context, agentID uuid.UUID) (GetWorkspaceAdmissionWakeTargetByAgentIDRow, error)
 	// Lists the top-level agents of the latest build of managed workspaces with
 	// their connection fields. A zero workspace ID lists the agents of every
 	// managed workspace. Reads the database only; agents are never dialed.
 	GetWorkspaceAdmissionWorkspaceAgents(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceAdmissionWorkspaceAgentsRow, error)
+	// Returns the stored state of a managed workspace, also while the
+	// controller reports it as off.
+	GetWorkspaceAdmissionWorkspaceStateByWorkspaceID(ctx context.Context, workspaceID uuid.UUID) (WorkspaceAdmissionWorkspaceState, error)
 	// Lists workspaces of managed templates with their latest build. A zero
 	// workspace ID lists every managed workspace.
 	GetWorkspaceAdmissionWorkspaces(ctx context.Context, workspaceID uuid.UUID) ([]GetWorkspaceAdmissionWorkspacesRow, error)
@@ -1859,6 +1873,14 @@ type sqlcQuerier interface {
 	// last_requested_at strictly increases so an acknowledgement that names the
 	// value it saw never covers a newer request.
 	UpsertWorkspaceAdmissionWakeIntent(ctx context.Context, arg UpsertWorkspaceAdmissionWakeIntentParams) (WorkspaceAdmissionWakeIntent, error)
+	// Stores the power state, runs and facts the controller pushed for a managed
+	// workspace, compare-and-set on power_epoch. A state with an older epoch
+	// than the stored one, including the epoch kept while the controller
+	// reports the workspace as off, changes nothing and returns no row. An
+	// equal epoch replaces the state, for example when a wake finishes or the
+	// runs change. updated_at strictly increases so the admission change cursor
+	// moves with every accepted state.
+	UpsertWorkspaceAdmissionWorkspaceState(ctx context.Context, arg UpsertWorkspaceAdmissionWorkspaceStateParams) (WorkspaceAdmissionWorkspaceState, error)
 	UpsertWorkspaceAgentContextResource(ctx context.Context, arg UpsertWorkspaceAgentContextResourceParams) (WorkspaceAgentContextResource, error)
 	UpsertWorkspaceAgentContextSnapshot(ctx context.Context, arg UpsertWorkspaceAgentContextSnapshotParams) (WorkspaceAgentContextSnapshot, error)
 	UpsertWorkspaceAgentPortShare(ctx context.Context, arg UpsertWorkspaceAgentPortShareParams) (WorkspaceAgentPortShare, error)

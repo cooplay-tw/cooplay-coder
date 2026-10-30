@@ -20,6 +20,7 @@ package coderd
 type workspaceRelated struct {
 	Template    bool                // template
 	LatestBuild *latestBuildRelated // latest_build
+	Cooplay     bool                // cooplay
 }
 
 type latestBuildRelated struct {
@@ -56,6 +57,7 @@ func allWorkspaceRelated() workspaceRelated {
 	return workspaceRelated{
 		Template:    true,
 		LatestBuild: &latestBuild,
+		Cooplay:     true,
 	}
 }
 

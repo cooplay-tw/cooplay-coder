@@ -6736,7 +6736,7 @@ type WorkspaceAdmissionWakeIntent struct {
 	UpdatedAt       time.Time      `db:"updated_at" json:"updated_at"`
 }
 
-// Power state, runs and facts of managed workspaces as pushed by the controller, for display. The controller is authoritative; a missing row means off or not reported.
+// Power state, runs and facts of managed workspaces as pushed by the controller, for display. The controller is authoritative; a missing row means not reported, a row with off_at means off.
 type WorkspaceAdmissionWorkspaceState struct {
 	WorkspaceID    uuid.UUID `db:"workspace_id" json:"workspace_id"`
 	OrganizationID uuid.UUID `db:"organization_id" json:"organization_id"`
@@ -6754,7 +6754,9 @@ type WorkspaceAdmissionWorkspaceState struct {
 	Git            pqtype.NullRawMessage `db:"git" json:"git"`
 	Pr             pqtype.NullRawMessage `db:"pr" json:"pr"`
 	LastSample     pqtype.NullRawMessage `db:"last_sample" json:"last_sample"`
-	UpdatedAt      time.Time             `db:"updated_at" json:"updated_at"`
+	// Set when the controller reported the workspace as off. The row then only keeps power_epoch, so that a delayed older state is still rejected, and readers treat it as absent. A newer state clears it.
+	OffAt     sql.NullTime `db:"off_at" json:"off_at"`
+	UpdatedAt time.Time    `db:"updated_at" json:"updated_at"`
 }
 
 type WorkspaceAgent struct {

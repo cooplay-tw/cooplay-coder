@@ -49,17 +49,20 @@ const (
 	// EventKindKeepaliveIntent is published after a keepalive intent was
 	// recorded.
 	EventKindKeepaliveIntent = "keepalive_intent"
+	// EventKindWorkspaceState is published after the controller stored or
+	// cleared the power state of a workspace.
+	EventKindWorkspaceState = "workspace_state"
 )
 
 // Event is the payload published on EventChannel.
 type Event struct {
 	// JobID is the build job whose admission changed. It is zero for intent
-	// events.
+	// and power state events.
 	JobID uuid.UUID `json:"job_id"`
 	// Kind is empty for admission changes and one of the EventKind values
-	// for intents.
+	// for intents and power states.
 	Kind string `json:"kind,omitempty"`
-	// WorkspaceID is the workspace of an intent event.
+	// WorkspaceID is the workspace of an intent or power state event.
 	WorkspaceID *uuid.UUID `json:"workspace_id,omitempty"`
 }
 
@@ -76,8 +79,9 @@ func Publish(ps pubsub.Pubsub, jobID uuid.UUID) error {
 	return nil
 }
 
-// PublishIntent notifies admission watchers that an intent of the given kind
-// was recorded for a workspace. Call it only after the intent is committed.
+// PublishIntent notifies admission watchers that an intent or the power
+// state of the given kind changed for a workspace. Call it only after the
+// change is committed.
 func PublishIntent(ps pubsub.Pubsub, kind string, workspaceID uuid.UUID) error {
 	msg, err := json.Marshal(Event{Kind: kind, WorkspaceID: &workspaceID})
 	if err != nil {

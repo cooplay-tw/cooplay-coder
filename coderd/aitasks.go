@@ -574,6 +574,7 @@ func (api *API) taskGet(rw http.ResponseWriter, r *http.Request) {
 		data.templates[0],
 		api.AllowWorkspaceRenames,
 		appStatus,
+		data.cooplayOf(workspace.ID),
 	)
 	if err != nil {
 		httpapi.Write(ctx, rw, http.StatusInternalServerError, codersdk.Response{
