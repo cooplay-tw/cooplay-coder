@@ -25,6 +25,10 @@ var (
 	ErrSleepWakeHooksNotAvailable = xerrors.New("sleep/wake hooks not available")
 )
 
+// ErrSessionReporterNotAvailable is returned by GetSessions when the server
+// was created without WithSessionReporter.
+var ErrSessionReporterNotAvailable = xerrors.New("session reporter not available")
+
 // SleepWakeHooks is implemented by the agent to support suspending the
 // workspace host (Cooplay agent workspaces: VM snapshot/restore) while the
 // workspace build stays running. It is an interface so tests can supply a
@@ -36,6 +40,28 @@ type SleepWakeHooks interface {
 	// Wake drops the current coderd RPC and DERP connections, rebinds
 	// tailnet, forces WireGuard handshakes and reconnects immediately.
 	Wake(ctx context.Context) error
+}
+
+// Sessions counts the client connections an agent serves right now.
+type Sessions struct {
+	// SSH counts open SSH sessions by normalized app name (see
+	// codersdk.NormalizeAppName). JetBrains Gateway is counted under
+	// "jetbrains" by its forwarded channel. Never nil.
+	SSH map[string]int64
+	// ReconnectingPTY counts connected reconnecting PTYs (web terminal).
+	ReconnectingPTY int64
+	// PortForward counts open port-forwarded connections: SSH local forwards
+	// other than JetBrains Gateway, and TCP connections and UDP flows
+	// forwarded from the tailnet to a local port.
+	PortForward int64
+}
+
+// SessionReporter is implemented by the agent to report the client
+// connections it serves (Cooplay agent workspaces: the platform controller's
+// idle policy reads them through the guest daemon). It is an interface so
+// tests can supply a fake.
+type SessionReporter interface {
+	ClientSessions() Sessions
 }
 
 // ContextManager is the subset of *agentcontext.Manager the socket
@@ -55,6 +81,7 @@ type DRPCAgentSocketService struct {
 	unitManager    *unit.Manager
 	contextManager ContextManager
 	sleepWakeHooks SleepWakeHooks
+	sessions       SessionReporter
 	logger         slog.Logger
 
 	mu       sync.Mutex
@@ -102,6 +129,19 @@ func (s *DRPCAgentSocketService) PrepareSleep(ctx context.Context, _ *proto.Prep
 		return nil, xerrors.Errorf("PrepareSleep: %w", err)
 	}
 	return &proto.PrepareSleepResponse{}, nil
+}
+
+// GetSessions reports the client connections the agent serves right now.
+func (s *DRPCAgentSocketService) GetSessions(_ context.Context, _ *proto.GetSessionsRequest) (*proto.GetSessionsResponse, error) {
+	if s.sessions == nil {
+		return nil, xerrors.Errorf("GetSessions: %w", ErrSessionReporterNotAvailable)
+	}
+	sessions := s.sessions.ClientSessions()
+	return &proto.GetSessionsResponse{
+		SshSessions:      sessions.SSH,
+		ReconnectingPtys: sessions.ReconnectingPTY,
+		PortForwards:     sessions.PortForward,
+	}, nil
 }
 
 // SyncStart starts a unit in the dependency graph.

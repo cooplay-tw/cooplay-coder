@@ -592,3 +592,82 @@ func TestConn_Wake(t *testing.T) {
 		return err == nil
 	}, testutil.WaitMedium, testutil.IntervalFast)
 }
+
+// TestConn_ForwardedConnCount verifies that a TCP connection the netstack
+// forwards to a local port is counted while it is open, and that connections
+// to a port the Conn listens on are not.
+func TestConn_ForwardedConnCount(t *testing.T) {
+	t.Parallel()
+	logger := testutil.Logger(t)
+	ctx := testutil.Context(t, testutil.WaitLong)
+	derpMap, _ := tailnettest.RunDERPAndSTUN(t)
+	w1IP := tailnet.TailscaleServicePrefix.RandomAddr()
+	w1, err := tailnet.NewConn(&tailnet.Options{
+		Addresses:      []netip.Prefix{netip.PrefixFrom(w1IP, 128)},
+		Logger:         logger.Named("w1"),
+		DERPMap:        derpMap,
+		BlockEndpoints: true,
+	})
+	require.NoError(t, err)
+	w2, err := tailnet.NewConn(&tailnet.Options{
+		Addresses:      []netip.Prefix{tailnet.TailscaleServicePrefix.RandomPrefix()},
+		Logger:         logger.Named("w2"),
+		DERPMap:        derpMap,
+		BlockEndpoints: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = w1.Close()
+		_ = w2.Close()
+	})
+	stitch(t, w2, w1)
+	stitch(t, w1, w2)
+	require.True(t, w2.AwaitReachable(ctx, w1IP))
+	require.Zero(t, w1.ForwardedConnCount())
+
+	// A local server on w1's host, reached through the tailnet like
+	// `coder port-forward` does.
+	local, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = local.Close() })
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, err := local.Accept()
+		if err != nil {
+			return
+		}
+		accepted <- conn
+	}()
+	localPort := uint16(local.Addr().(*net.TCPAddr).Port) //nolint:gosec // a listener port fits in uint16
+
+	forwarded, err := w2.DialContextTCP(ctx, netip.AddrPortFrom(w1IP, localPort))
+	require.NoError(t, err)
+	serverSide := testutil.RequireReceive(ctx, t, accepted)
+	t.Cleanup(func() { _ = serverSide.Close() })
+	require.Eventually(t, func() bool {
+		return w1.ForwardedConnCount() == 1
+	}, testutil.WaitShort, testutil.IntervalFast)
+
+	// A connection to a Conn listener is served by w1 itself.
+	listener, err := w1.Listen("tcp", ":35566")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		_ = conn.Close()
+	}()
+	listened, err := w2.DialContextTCP(ctx, netip.AddrPortFrom(w1IP, 35566))
+	require.NoError(t, err)
+	_ = listened.Close()
+	require.Never(t, func() bool {
+		return w1.ForwardedConnCount() != 1
+	}, testutil.IntervalSlow, testutil.IntervalFast)
+
+	require.NoError(t, forwarded.Close())
+	require.Eventually(t, func() bool {
+		return w1.ForwardedConnCount() == 0
+	}, testutil.WaitShort, testutil.IntervalFast)
+}

@@ -2,6 +2,7 @@ package agentsocket
 
 import (
 	"context"
+	"maps"
 
 	"golang.org/x/xerrors"
 	"storj.io/drpc"
@@ -19,6 +20,7 @@ type options struct {
 	path           string
 	contextManager ContextManager
 	sleepWakeHooks SleepWakeHooks
+	sessions       SessionReporter
 }
 
 // WithPath sets the socket path. If not provided or empty, the client will
@@ -45,6 +47,14 @@ func WithContextManager(cm ContextManager) Option {
 func WithSleepWakeHooks(h SleepWakeHooks) Option {
 	return func(opts *options) {
 		opts.sleepWakeHooks = h
+	}
+}
+
+// WithSessionReporter supplies the agent counters the server uses to serve
+// the GetSessions RPC. Server-only; ignored by the client.
+func WithSessionReporter(r SessionReporter) Option {
+	return func(opts *options) {
+		opts.sessions = r
 	}
 }
 
@@ -100,6 +110,22 @@ func (c *Client) Wake(ctx context.Context) error {
 func (c *Client) PrepareSleep(ctx context.Context) error {
 	_, err := c.client.PrepareSleep(ctx, &proto.PrepareSleepRequest{})
 	return err
+}
+
+// Sessions returns the client connections the agent serves right now. See
+// SessionReporter.
+func (c *Client) Sessions(ctx context.Context) (Sessions, error) {
+	resp, err := c.client.GetSessions(ctx, &proto.GetSessionsRequest{})
+	if err != nil {
+		return Sessions{}, err
+	}
+	ssh := make(map[string]int64, len(resp.GetSshSessions()))
+	maps.Copy(ssh, resp.GetSshSessions())
+	return Sessions{
+		SSH:             ssh,
+		ReconnectingPTY: resp.GetReconnectingPtys(),
+		PortForward:     resp.GetPortForwards(),
+	}, nil
 }
 
 // SyncStart starts a unit in the dependency graph.

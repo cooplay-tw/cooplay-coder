@@ -48,6 +48,7 @@ func NewServer(logger slog.Logger, opts ...Option) (*Server, error) {
 			unitManager:    unit.NewManager(),
 			contextManager: options.contextManager,
 			sleepWakeHooks: options.sleepWakeHooks,
+			sessions:       options.sessions,
 		},
 	}
 

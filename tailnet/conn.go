@@ -271,10 +271,11 @@ func NewConn(options *Options) (conn *Conn, err error) {
 		return nil, xerrors.Errorf("set node private key: %w", err)
 	}
 
+	forwards := newForwardCountingEngine(wireguardEngine)
 	netStack, err := netstack.Create(
 		Logger(options.Logger.Named("net.netstack")),
 		sys.Tun.Get(),
-		wireguardEngine,
+		forwards,
 		magicConn,
 		dialer,
 		sys.DNSManager.Get(),
@@ -338,6 +339,7 @@ func NewConn(options *Options) (conn *Conn, err error) {
 			LocalAddrs: options.Addresses,
 		},
 		wireguardEngine: wireguardEngine,
+		forwards:        forwards,
 		configMaps:      cfgMaps,
 		nodeUpdater:     nodeUp,
 		telemetrySink:   options.TelemetrySink,
@@ -459,6 +461,7 @@ type Conn struct {
 	wireguardMonitor *netmon.Monitor
 	wireguardRouter  *router.Config
 	wireguardEngine  wgengine.Engine
+	forwards         *forwardCountingEngine
 	dnsConfigurator  dns.OSConfigurator
 	listeners        map[listenKey]*listener
 	clientType       proto.TelemetryEvent_ClientType

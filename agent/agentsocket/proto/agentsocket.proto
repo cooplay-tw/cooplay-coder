@@ -155,6 +155,22 @@ message PrepareSleepRequest {}
 
 message PrepareSleepResponse {}
 
+message GetSessionsRequest {}
+
+// GetSessionsResponse counts the client connections the agent serves right
+// now (Cooplay agent workspaces: the idle policy of the platform controller).
+message GetSessionsResponse {
+  // Open SSH sessions by normalized app name (ssh, vscode, jetbrains, ...).
+  // JetBrains Gateway is counted by its forwarded channel, not its sessions.
+  map<string, int64> ssh_sessions = 1;
+  // Connected reconnecting PTYs (web terminal).
+  int64 reconnecting_ptys = 2;
+  // Open port-forwarded connections: SSH local forwards other than
+  // JetBrains Gateway, and TCP connections and UDP flows the agent forwards
+  // from the tailnet to a local port.
+  int64 port_forwards = 3;
+}
+
 // AgentSocket provides direct access to the agent over local IPC.
 service AgentSocket {
   // Ping the agent to check if it is alive.
@@ -193,4 +209,7 @@ service AgentSocket {
   // its connections are torn down, so peers see it as LOST (and keep it)
   // instead of DISCONNECTED. Cleared by Wake.
   rpc PrepareSleep(PrepareSleepRequest) returns (PrepareSleepResponse);
+  // GetSessions counts the SSH sessions, reconnecting PTYs and port-forwarded
+  // connections the agent serves right now.
+  rpc GetSessions(GetSessionsRequest) returns (GetSessionsResponse);
 }

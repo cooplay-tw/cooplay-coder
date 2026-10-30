@@ -141,6 +141,8 @@ type Server struct {
 	// Kept off mu, which Close holds while closing sessions.
 	sessionCountsMu sync.Mutex
 	sessionCounts   map[string]int64
+	// portForwards counts open local forward channels, see PortForwardCount.
+	portForwards atomic.Int64
 
 	Execer       agentexec.Execer
 	logger       slog.Logger
@@ -224,6 +226,9 @@ func NewServer(ctx context.Context, logger slog.Logger, prometheusRegistry *prom
 			"direct-tcpip": func(srv *ssh.Server, conn *gossh.ServerConn, newChan gossh.NewChannel, ctx ssh.Context) {
 				// Wrapper is designed to find and track JetBrains Gateway connections.
 				wrapped := NewJetbrainsChannelWatcher(ctx, s.logger, s.config.ReportConnection, newChan, s.startSession)
+				if _, isJetBrains := wrapped.(*JetbrainsChannelWatcher); !isJetBrains {
+					wrapped = s.countPortForward(wrapped)
+				}
 				ssh.DirectTCPIPHandler(srv, conn, wrapped, ctx)
 			},
 			"direct-streamlocal@openssh.com": func(srv *ssh.Server, conn *gossh.ServerConn, newChan gossh.NewChannel, ctx ssh.Context) {
@@ -232,7 +237,7 @@ func NewServer(ctx context.Context, logger slog.Logger, prometheusRegistry *prom
 					_ = newChan.Reject(gossh.Prohibited, "local port forwarding is disabled")
 					return
 				}
-				directStreamLocalHandler(srv, conn, newChan, ctx)
+				directStreamLocalHandler(srv, conn, s.countPortForward(newChan), ctx)
 			},
 			"session": ssh.DefaultSessionHandler,
 		},

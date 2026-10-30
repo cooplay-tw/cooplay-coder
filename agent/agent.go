@@ -594,6 +594,7 @@ func (a *agent) initSocketServer() {
 		agentsocket.WithPath(a.socketPath),
 		agentsocket.WithContextManager(a.contextManager),
 		agentsocket.WithSleepWakeHooks(a),
+		agentsocket.WithSessionReporter(a),
 	)
 	if err != nil {
 		a.logger.Error(a.hardCtx, "failed to create socket server", slog.Error(err), slog.F("path", a.socketPath))

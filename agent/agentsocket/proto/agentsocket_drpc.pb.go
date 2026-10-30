@@ -55,6 +55,7 @@ type DRPCAgentSocketClient interface {
 	ResyncContext(ctx context.Context, in *ResyncContextRequest) (*ResyncContextResponse, error)
 	Wake(ctx context.Context, in *WakeRequest) (*WakeResponse, error)
 	PrepareSleep(ctx context.Context, in *PrepareSleepRequest) (*PrepareSleepResponse, error)
+	GetSessions(ctx context.Context, in *GetSessionsRequest) (*GetSessionsResponse, error)
 }
 
 type drpcAgentSocketClient struct {
@@ -211,6 +212,15 @@ func (c *drpcAgentSocketClient) PrepareSleep(ctx context.Context, in *PrepareSle
 	return out, nil
 }
 
+func (c *drpcAgentSocketClient) GetSessions(ctx context.Context, in *GetSessionsRequest) (*GetSessionsResponse, error) {
+	out := new(GetSessionsResponse)
+	err := c.cc.Invoke(ctx, "/coder.agentsocket.v1.AgentSocket/GetSessions", drpcEncoding_File_agent_agentsocket_proto_agentsocket_proto{}, in, out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 type DRPCAgentSocketServer interface {
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
 	SyncStart(context.Context, *SyncStartRequest) (*SyncStartResponse, error)
@@ -228,6 +238,7 @@ type DRPCAgentSocketServer interface {
 	ResyncContext(context.Context, *ResyncContextRequest) (*ResyncContextResponse, error)
 	Wake(context.Context, *WakeRequest) (*WakeResponse, error)
 	PrepareSleep(context.Context, *PrepareSleepRequest) (*PrepareSleepResponse, error)
+	GetSessions(context.Context, *GetSessionsRequest) (*GetSessionsResponse, error)
 }
 
 type DRPCAgentSocketUnimplementedServer struct{}
@@ -296,9 +307,13 @@ func (s *DRPCAgentSocketUnimplementedServer) PrepareSleep(context.Context, *Prep
 	return nil, drpcerr.WithCode(errors.New("Unimplemented"), drpcerr.Unimplemented)
 }
 
+func (s *DRPCAgentSocketUnimplementedServer) GetSessions(context.Context, *GetSessionsRequest) (*GetSessionsResponse, error) {
+	return nil, drpcerr.WithCode(errors.New("Unimplemented"), drpcerr.Unimplemented)
+}
+
 type DRPCAgentSocketDescription struct{}
 
-func (DRPCAgentSocketDescription) NumMethods() int { return 16 }
+func (DRPCAgentSocketDescription) NumMethods() int { return 17 }
 
 func (DRPCAgentSocketDescription) Method(n int) (string, drpc.Encoding, drpc.Receiver, interface{}, bool) {
 	switch n {
@@ -446,6 +461,15 @@ func (DRPCAgentSocketDescription) Method(n int) (string, drpc.Encoding, drpc.Rec
 						in1.(*PrepareSleepRequest),
 					)
 			}, DRPCAgentSocketServer.PrepareSleep, true
+	case 16:
+		return "/coder.agentsocket.v1.AgentSocket/GetSessions", drpcEncoding_File_agent_agentsocket_proto_agentsocket_proto{},
+			func(srv interface{}, ctx context.Context, in1, in2 interface{}) (drpc.Message, error) {
+				return srv.(DRPCAgentSocketServer).
+					GetSessions(
+						ctx,
+						in1.(*GetSessionsRequest),
+					)
+			}, DRPCAgentSocketServer.GetSessions, true
 	default:
 		return "", nil, nil, nil, false
 	}
@@ -705,6 +729,22 @@ type drpcAgentSocket_PrepareSleepStream struct {
 }
 
 func (x *drpcAgentSocket_PrepareSleepStream) SendAndClose(m *PrepareSleepResponse) error {
+	if err := x.MsgSend(m, drpcEncoding_File_agent_agentsocket_proto_agentsocket_proto{}); err != nil {
+		return err
+	}
+	return x.CloseSend()
+}
+
+type DRPCAgentSocket_GetSessionsStream interface {
+	drpc.Stream
+	SendAndClose(*GetSessionsResponse) error
+}
+
+type drpcAgentSocket_GetSessionsStream struct {
+	drpc.Stream
+}
+
+func (x *drpcAgentSocket_GetSessionsStream) SendAndClose(m *GetSessionsResponse) error {
 	if err := x.MsgSend(m, drpcEncoding_File_agent_agentsocket_proto_agentsocket_proto{}); err != nil {
 		return err
 	}
