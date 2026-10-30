@@ -2,12 +2,15 @@ package schedule
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/xerrors"
 
 	"github.com/coder/coder/v2/coderd/database"
+	"github.com/coder/coder/v2/coderd/database/dbauthz"
 	"github.com/coder/coder/v2/coderd/database/dbtime"
 	"github.com/coder/coder/v2/coderd/tracing"
 )
@@ -178,13 +181,25 @@ func (*agplTemplateScheduleStore) Get(ctx context.Context, db database.Store, te
 	if err != nil {
 		return TemplateScheduleOptions{}, err
 	}
+	managed, err := isManagedTemplate(ctx, db, templateID)
+	if err != nil {
+		return TemplateScheduleOptions{}, err
+	}
+	defaultTTL := time.Duration(tpl.DefaultTTL)
+	if managed {
+		// The platform controller suspends managed workspaces while their
+		// START build keeps running. A deadline would make the lifecycle
+		// executor stop that build and turn a sleeping workspace cold, so
+		// managed workspaces have no default TTL and ignore workspace TTLs.
+		defaultTTL = 0
+	}
 
 	return TemplateScheduleOptions{
 		// Disregard the values in the database, since user scheduling is an
 		// enterprise feature.
 		UserAutostartEnabled:  true,
-		UserAutostopEnabled:   true,
-		DefaultTTL:            time.Duration(tpl.DefaultTTL),
+		UserAutostopEnabled:   !managed,
+		DefaultTTL:            defaultTTL,
 		ActivityBump:          time.Duration(tpl.ActivityBump),
 		TimeTilAutostopNotify: time.Duration(tpl.TimeTilAutostopNotify),
 		// Disregard the values in the database, since AutostopRequirement,
@@ -203,6 +218,20 @@ func (*agplTemplateScheduleStore) Get(ctx context.Context, db database.Store, te
 		TimeTilDormant:           0,
 		TimeTilDormantAutoDelete: 0,
 	}, nil
+}
+
+// isManagedTemplate reports whether workspace admission manages the
+// template.
+func isManagedTemplate(ctx context.Context, db database.Store, templateID uuid.UUID) (bool, error) {
+	//nolint:gocritic // Whether a template is managed is admission data that callers of the schedule store cannot read themselves.
+	_, err := db.GetWorkspaceAdmissionTemplateByTemplateID(dbauthz.AsWorkspaceAdmissionReader(ctx), templateID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, xerrors.Errorf("get workspace admission template: %w", err)
+	}
+	return true, nil
 }
 
 func (*agplTemplateScheduleStore) Set(ctx context.Context, db database.Store, tpl database.Template, opts TemplateScheduleOptions) (database.Template, error) {

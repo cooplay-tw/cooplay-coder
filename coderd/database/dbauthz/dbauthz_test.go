@@ -4922,6 +4922,21 @@ func (s *MethodTestSuite) TestWorkspaceAdmission() {
 		dbm.EXPECT().GetWorkspaceAdmissionStopOperationByOperationID(gomock.Any(), op.OperationID).Return(op, nil).AnyTimes()
 		check.Args(op.OperationID).Asserts(op, policy.ActionRead).Returns(op)
 	}))
+	s.Run("DisableWorkspaceAdmissionTemplateAutostop", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		arg := database.DisableWorkspaceAdmissionTemplateAutostopParams{TemplateID: uuid.New()}
+		dbm.EXPECT().DisableWorkspaceAdmissionTemplateAutostop(gomock.Any(), arg).Return(int64(1), nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(int64(1))
+	}))
+	s.Run("ClearWorkspaceAdmissionWorkspaceTTLs", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		id := uuid.New()
+		dbm.EXPECT().ClearWorkspaceAdmissionWorkspaceTTLs(gomock.Any(), id).Return(int64(2), nil).AnyTimes()
+		check.Args(id).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(int64(2))
+	}))
+	s.Run("ClearWorkspaceAdmissionBuildDeadlines", s.Mocked(func(dbm *dbmock.MockStore, _ *gofakeit.Faker, check *expects) {
+		arg := database.ClearWorkspaceAdmissionBuildDeadlinesParams{TemplateID: uuid.New()}
+		dbm.EXPECT().ClearWorkspaceAdmissionBuildDeadlines(gomock.Any(), arg).Return(int64(3), nil).AnyTimes()
+		check.Args(arg).Asserts(rbac.ResourceWorkspaceAdmission, policy.ActionUpdate).Returns(int64(3))
+	}))
 	s.Run("InsertWorkspaceAdmissionCreateOperation", s.Mocked(func(dbm *dbmock.MockStore, faker *gofakeit.Faker, check *expects) {
 		op := testutil.Fake(s.T(), faker, database.WorkspaceAdmissionCreateOperation{})
 		arg := database.InsertWorkspaceAdmissionCreateOperationParams{OperationID: op.OperationID, OrganizationID: op.OrganizationID}

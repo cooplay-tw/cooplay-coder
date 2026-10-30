@@ -49,6 +49,79 @@ DELETE FROM
 WHERE
 	template_id = @template_id;
 
+-- name: DisableWorkspaceAdmissionTemplateAutostop :execrows
+-- Turns off user autostop and the default TTL of a managed template. The
+-- platform controller suspends managed workspaces while their build keeps
+-- running, so no schedule may stop that build. Only managed templates match.
+UPDATE
+	templates t
+SET
+	allow_user_autostop = false,
+	default_ttl = 0,
+	updated_at = @now
+WHERE
+	t.id = @template_id
+	AND (t.allow_user_autostop OR t.default_ttl <> 0)
+	AND EXISTS (
+		SELECT
+			1
+		FROM
+			workspace_admission_templates wat
+		WHERE
+			wat.template_id = t.id
+	);
+
+-- name: ClearWorkspaceAdmissionWorkspaceTTLs :execrows
+-- Clears the TTL of every workspace of a managed template. Only managed
+-- templates match.
+UPDATE
+	workspaces w
+SET
+	ttl = NULL
+WHERE
+	w.template_id = @template_id
+	AND w.ttl IS NOT NULL
+	AND EXISTS (
+		SELECT
+			1
+		FROM
+			workspace_admission_templates wat
+		WHERE
+			wat.template_id = w.template_id
+	);
+
+-- name: ClearWorkspaceAdmissionBuildDeadlines :execrows
+-- Clears the deadline of the latest build of every workspace of a managed
+-- template, so the lifecycle executor never stops a managed workspace on a
+-- schedule. Only managed templates match.
+UPDATE
+	workspace_builds wb
+SET
+	deadline = '0001-01-01 00:00:00+00'::timestamptz,
+	updated_at = @now
+FROM
+	workspaces w
+WHERE
+	w.id = wb.workspace_id
+	AND w.template_id = @template_id
+	AND wb.deadline <> '0001-01-01 00:00:00+00'::timestamptz
+	AND wb.build_number = (
+		SELECT
+			MAX(b.build_number)
+		FROM
+			workspace_builds b
+		WHERE
+			b.workspace_id = w.id
+	)
+	AND EXISTS (
+		SELECT
+			1
+		FROM
+			workspace_admission_templates wat
+		WHERE
+			wat.template_id = w.template_id
+	);
+
 -- name: GetWorkspaceAdmissionEntitlementsByUserID :many
 SELECT
 	*

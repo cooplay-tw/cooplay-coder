@@ -328,6 +328,22 @@ func (m queryMetricsStore) CleanupDeletedMCPServerIDsFromChats(ctx context.Conte
 	return r0
 }
 
+func (m queryMetricsStore) ClearWorkspaceAdmissionBuildDeadlines(ctx context.Context, arg database.ClearWorkspaceAdmissionBuildDeadlinesParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.ClearWorkspaceAdmissionBuildDeadlines(ctx, arg)
+	m.queryLatencies.WithLabelValues("ClearWorkspaceAdmissionBuildDeadlines").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ClearWorkspaceAdmissionBuildDeadlines").Inc()
+	return r0, r1
+}
+
+func (m queryMetricsStore) ClearWorkspaceAdmissionWorkspaceTTLs(ctx context.Context, templateID uuid.UUID) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.ClearWorkspaceAdmissionWorkspaceTTLs(ctx, templateID)
+	m.queryLatencies.WithLabelValues("ClearWorkspaceAdmissionWorkspaceTTLs").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "ClearWorkspaceAdmissionWorkspaceTTLs").Inc()
+	return r0, r1
+}
+
 func (m queryMetricsStore) CountAIBridgeSessions(ctx context.Context, arg database.CountAIBridgeSessionsParams) (int64, error) {
 	start := time.Now()
 	r0, r1 := m.s.CountAIBridgeSessions(ctx, arg)
@@ -1038,6 +1054,14 @@ func (m queryMetricsStore) DisableForeignKeysAndTriggers(ctx context.Context) er
 	m.queryLatencies.WithLabelValues("DisableForeignKeysAndTriggers").Observe(time.Since(start).Seconds())
 	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DisableForeignKeysAndTriggers").Inc()
 	return r0
+}
+
+func (m queryMetricsStore) DisableWorkspaceAdmissionTemplateAutostop(ctx context.Context, arg database.DisableWorkspaceAdmissionTemplateAutostopParams) (int64, error) {
+	start := time.Now()
+	r0, r1 := m.s.DisableWorkspaceAdmissionTemplateAutostop(ctx, arg)
+	m.queryLatencies.WithLabelValues("DisableWorkspaceAdmissionTemplateAutostop").Observe(time.Since(start).Seconds())
+	m.queryCounts.WithLabelValues(httpmw.ExtractHTTPRoute(ctx), httpmw.ExtractHTTPMethod(ctx), "DisableWorkspaceAdmissionTemplateAutostop").Inc()
+	return r0, r1
 }
 
 func (m queryMetricsStore) EnqueueNotificationMessage(ctx context.Context, arg database.EnqueueNotificationMessageParams) error {

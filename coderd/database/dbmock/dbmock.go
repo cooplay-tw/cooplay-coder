@@ -452,6 +452,36 @@ func (mr *MockStoreMockRecorder) CleanupDeletedMCPServerIDsFromChats(ctx any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupDeletedMCPServerIDsFromChats", reflect.TypeOf((*MockStore)(nil).CleanupDeletedMCPServerIDsFromChats), ctx)
 }
 
+// ClearWorkspaceAdmissionBuildDeadlines mocks base method.
+func (m *MockStore) ClearWorkspaceAdmissionBuildDeadlines(ctx context.Context, arg database.ClearWorkspaceAdmissionBuildDeadlinesParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearWorkspaceAdmissionBuildDeadlines", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearWorkspaceAdmissionBuildDeadlines indicates an expected call of ClearWorkspaceAdmissionBuildDeadlines.
+func (mr *MockStoreMockRecorder) ClearWorkspaceAdmissionBuildDeadlines(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearWorkspaceAdmissionBuildDeadlines", reflect.TypeOf((*MockStore)(nil).ClearWorkspaceAdmissionBuildDeadlines), ctx, arg)
+}
+
+// ClearWorkspaceAdmissionWorkspaceTTLs mocks base method.
+func (m *MockStore) ClearWorkspaceAdmissionWorkspaceTTLs(ctx context.Context, templateID uuid.UUID) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearWorkspaceAdmissionWorkspaceTTLs", ctx, templateID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearWorkspaceAdmissionWorkspaceTTLs indicates an expected call of ClearWorkspaceAdmissionWorkspaceTTLs.
+func (mr *MockStoreMockRecorder) ClearWorkspaceAdmissionWorkspaceTTLs(ctx, templateID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearWorkspaceAdmissionWorkspaceTTLs", reflect.TypeOf((*MockStore)(nil).ClearWorkspaceAdmissionWorkspaceTTLs), ctx, templateID)
+}
+
 // CountAIBridgeSessions mocks base method.
 func (m *MockStore) CountAIBridgeSessions(ctx context.Context, arg database.CountAIBridgeSessionsParams) (int64, error) {
 	m.ctrl.T.Helper()
@@ -1799,6 +1829,21 @@ func (m *MockStore) DisableForeignKeysAndTriggers(ctx context.Context) error {
 func (mr *MockStoreMockRecorder) DisableForeignKeysAndTriggers(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisableForeignKeysAndTriggers", reflect.TypeOf((*MockStore)(nil).DisableForeignKeysAndTriggers), ctx)
+}
+
+// DisableWorkspaceAdmissionTemplateAutostop mocks base method.
+func (m *MockStore) DisableWorkspaceAdmissionTemplateAutostop(ctx context.Context, arg database.DisableWorkspaceAdmissionTemplateAutostopParams) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DisableWorkspaceAdmissionTemplateAutostop", ctx, arg)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DisableWorkspaceAdmissionTemplateAutostop indicates an expected call of DisableWorkspaceAdmissionTemplateAutostop.
+func (mr *MockStoreMockRecorder) DisableWorkspaceAdmissionTemplateAutostop(ctx, arg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisableWorkspaceAdmissionTemplateAutostop", reflect.TypeOf((*MockStore)(nil).DisableWorkspaceAdmissionTemplateAutostop), ctx, arg)
 }
 
 // EnqueueNotificationMessage mocks base method.

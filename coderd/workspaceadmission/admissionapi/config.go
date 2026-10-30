@@ -48,7 +48,11 @@ func (s *Server) showTemplate(rw http.ResponseWriter, r *http.Request) {
 }
 
 // putTemplate marks a template as managed. From then on every START build of
-// the template needs a grant before a provisioner may acquire it.
+// the template needs a grant before a provisioner may acquire it. In the same
+// transaction the template loses user autostop and its default TTL, and its
+// workspaces lose their TTL and the deadline of their latest build: the
+// platform controller suspends managed workspaces while their build keeps
+// running, and no schedule may stop that build.
 func (s *Server) putTemplate(rw http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	templateID, err := uuidParam(r, "template_id")
@@ -65,11 +69,35 @@ func (s *Server) putTemplate(rw http.ResponseWriter, r *http.Request) {
 		writeError(ctx, rw, http.StatusBadRequest, CodeInvalidRequest, "Field profile_parameter is required.", "")
 		return
 	}
-	row, err := s.db.UpsertWorkspaceAdmissionTemplate(ctx, database.UpsertWorkspaceAdmissionTemplateParams{
-		ProfileParameter: body.ProfileParameter,
-		Now:              dbtime.Now(),
-		TemplateID:       templateID,
-	})
+	var row database.WorkspaceAdmissionTemplate
+	err = s.db.InTx(func(tx database.Store) error {
+		now := dbtime.Now()
+		var err error
+		row, err = tx.UpsertWorkspaceAdmissionTemplate(ctx, database.UpsertWorkspaceAdmissionTemplateParams{
+			ProfileParameter: body.ProfileParameter,
+			Now:              now,
+			TemplateID:       templateID,
+		})
+		if err != nil {
+			return err
+		}
+		if _, err := tx.DisableWorkspaceAdmissionTemplateAutostop(ctx, database.DisableWorkspaceAdmissionTemplateAutostopParams{
+			Now:        now,
+			TemplateID: templateID,
+		}); err != nil {
+			return xerrors.Errorf("disable template autostop: %w", err)
+		}
+		if _, err := tx.ClearWorkspaceAdmissionWorkspaceTTLs(ctx, templateID); err != nil {
+			return xerrors.Errorf("clear workspace ttls: %w", err)
+		}
+		if _, err := tx.ClearWorkspaceAdmissionBuildDeadlines(ctx, database.ClearWorkspaceAdmissionBuildDeadlinesParams{
+			Now:        now,
+			TemplateID: templateID,
+		}); err != nil {
+			return xerrors.Errorf("clear build deadlines: %w", err)
+		}
+		return nil
+	}, nil)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(ctx, rw, http.StatusNotFound, CodeNotFound, "Template not found.", "")
 		return

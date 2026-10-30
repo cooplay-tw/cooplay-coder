@@ -114,6 +114,13 @@ type sqlcQuerier interface {
 	CleanTailnetLostPeers(ctx context.Context) error
 	CleanTailnetTunnels(ctx context.Context) error
 	CleanupDeletedMCPServerIDsFromChats(ctx context.Context) error
+	// Clears the deadline of the latest build of every workspace of a managed
+	// template, so the lifecycle executor never stops a managed workspace on a
+	// schedule. Only managed templates match.
+	ClearWorkspaceAdmissionBuildDeadlines(ctx context.Context, arg ClearWorkspaceAdmissionBuildDeadlinesParams) (int64, error)
+	// Clears the TTL of every workspace of a managed template. Only managed
+	// templates match.
+	ClearWorkspaceAdmissionWorkspaceTTLs(ctx context.Context, templateID uuid.UUID) (int64, error)
 	CountAIBridgeSessions(ctx context.Context, arg CountAIBridgeSessionsParams) (int64, error)
 	CountAuditLogs(ctx context.Context, arg CountAuditLogsParams) (int64, error)
 	// Excluding the candidate keeps ownership takeover capacity-neutral.
@@ -284,6 +291,10 @@ type sqlcQuerier interface {
 	// Deprecated: disable foreign keys was created to aid in migrating off
 	// of the test-only in-memory database. Do not use this in new code.
 	DisableForeignKeysAndTriggers(ctx context.Context) error
+	// Turns off user autostop and the default TTL of a managed template. The
+	// platform controller suspends managed workspaces while their build keeps
+	// running, so no schedule may stop that build. Only managed templates match.
+	DisableWorkspaceAdmissionTemplateAutostop(ctx context.Context, arg DisableWorkspaceAdmissionTemplateAutostopParams) (int64, error)
 	EnqueueNotificationMessage(ctx context.Context, arg EnqueueNotificationMessageParams) error
 	// Firstly, collect api_keys owned by the prebuilds user that correlate
 	// to workspaces no longer owned by the prebuilds user.

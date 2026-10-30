@@ -33726,6 +33726,80 @@ func (q *sqlQuerier) UpsertWorkspaceAdmissionGrant(ctx context.Context, arg Upse
 	return i, err
 }
 
+const clearWorkspaceAdmissionBuildDeadlines = `-- name: ClearWorkspaceAdmissionBuildDeadlines :execrows
+UPDATE
+	workspace_builds wb
+SET
+	deadline = '0001-01-01 00:00:00+00'::timestamptz,
+	updated_at = $1
+FROM
+	workspaces w
+WHERE
+	w.id = wb.workspace_id
+	AND w.template_id = $2
+	AND wb.deadline <> '0001-01-01 00:00:00+00'::timestamptz
+	AND wb.build_number = (
+		SELECT
+			MAX(b.build_number)
+		FROM
+			workspace_builds b
+		WHERE
+			b.workspace_id = w.id
+	)
+	AND EXISTS (
+		SELECT
+			1
+		FROM
+			workspace_admission_templates wat
+		WHERE
+			wat.template_id = w.template_id
+	)
+`
+
+type ClearWorkspaceAdmissionBuildDeadlinesParams struct {
+	Now        time.Time `db:"now" json:"now"`
+	TemplateID uuid.UUID `db:"template_id" json:"template_id"`
+}
+
+// Clears the deadline of the latest build of every workspace of a managed
+// template, so the lifecycle executor never stops a managed workspace on a
+// schedule. Only managed templates match.
+func (q *sqlQuerier) ClearWorkspaceAdmissionBuildDeadlines(ctx context.Context, arg ClearWorkspaceAdmissionBuildDeadlinesParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearWorkspaceAdmissionBuildDeadlines, arg.Now, arg.TemplateID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const clearWorkspaceAdmissionWorkspaceTTLs = `-- name: ClearWorkspaceAdmissionWorkspaceTTLs :execrows
+UPDATE
+	workspaces w
+SET
+	ttl = NULL
+WHERE
+	w.template_id = $1
+	AND w.ttl IS NOT NULL
+	AND EXISTS (
+		SELECT
+			1
+		FROM
+			workspace_admission_templates wat
+		WHERE
+			wat.template_id = w.template_id
+	)
+`
+
+// Clears the TTL of every workspace of a managed template. Only managed
+// templates match.
+func (q *sqlQuerier) ClearWorkspaceAdmissionWorkspaceTTLs(ctx context.Context, templateID uuid.UUID) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearWorkspaceAdmissionWorkspaceTTLs, templateID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteWorkspaceAdmissionEntitlementsByUserID = `-- name: DeleteWorkspaceAdmissionEntitlementsByUserID :exec
 DELETE FROM
 	workspace_admission_entitlements
@@ -33747,6 +33821,42 @@ WHERE
 
 func (q *sqlQuerier) DeleteWorkspaceAdmissionTemplateByTemplateID(ctx context.Context, templateID uuid.UUID) (int64, error) {
 	result, err := q.db.ExecContext(ctx, deleteWorkspaceAdmissionTemplateByTemplateID, templateID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const disableWorkspaceAdmissionTemplateAutostop = `-- name: DisableWorkspaceAdmissionTemplateAutostop :execrows
+UPDATE
+	templates t
+SET
+	allow_user_autostop = false,
+	default_ttl = 0,
+	updated_at = $1
+WHERE
+	t.id = $2
+	AND (t.allow_user_autostop OR t.default_ttl <> 0)
+	AND EXISTS (
+		SELECT
+			1
+		FROM
+			workspace_admission_templates wat
+		WHERE
+			wat.template_id = t.id
+	)
+`
+
+type DisableWorkspaceAdmissionTemplateAutostopParams struct {
+	Now        time.Time `db:"now" json:"now"`
+	TemplateID uuid.UUID `db:"template_id" json:"template_id"`
+}
+
+// Turns off user autostop and the default TTL of a managed template. The
+// platform controller suspends managed workspaces while their build keeps
+// running, so no schedule may stop that build. Only managed templates match.
+func (q *sqlQuerier) DisableWorkspaceAdmissionTemplateAutostop(ctx context.Context, arg DisableWorkspaceAdmissionTemplateAutostopParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, disableWorkspaceAdmissionTemplateAutostop, arg.Now, arg.TemplateID)
 	if err != nil {
 		return 0, err
 	}

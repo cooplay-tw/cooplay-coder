@@ -2121,6 +2121,24 @@ func (q *querier) CleanupDeletedMCPServerIDsFromChats(ctx context.Context) error
 	return q.db.CleanupDeletedMCPServerIDsFromChats(ctx)
 }
 
+func (q *querier) ClearWorkspaceAdmissionBuildDeadlines(ctx context.Context, arg database.ClearWorkspaceAdmissionBuildDeadlinesParams) (int64, error) {
+	// The query only matches managed templates, so the admission service
+	// cannot change the schedule of other templates through it.
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return 0, err
+	}
+	return q.db.ClearWorkspaceAdmissionBuildDeadlines(ctx, arg)
+}
+
+func (q *querier) ClearWorkspaceAdmissionWorkspaceTTLs(ctx context.Context, templateID uuid.UUID) (int64, error) {
+	// The query only matches managed templates, so the admission service
+	// cannot change the schedule of other templates through it.
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return 0, err
+	}
+	return q.db.ClearWorkspaceAdmissionWorkspaceTTLs(ctx, templateID)
+}
+
 func (q *querier) CountAIBridgeSessions(ctx context.Context, arg database.CountAIBridgeSessionsParams) (int64, error) {
 	prep, err := prepareSQLFilter(ctx, q.auth, policy.ActionRead, rbac.ResourceAibridgeInterception.Type)
 	if err != nil {
@@ -2908,6 +2926,15 @@ func (q *querier) DisableForeignKeysAndTriggers(ctx context.Context) error {
 		return xerrors.Errorf("DisableForeignKeysAndTriggers is only allowed in tests")
 	}
 	return q.db.DisableForeignKeysAndTriggers(ctx)
+}
+
+func (q *querier) DisableWorkspaceAdmissionTemplateAutostop(ctx context.Context, arg database.DisableWorkspaceAdmissionTemplateAutostopParams) (int64, error) {
+	// The query only matches managed templates, so the admission service
+	// cannot change the schedule of other templates through it.
+	if err := q.authorizeContext(ctx, policy.ActionUpdate, rbac.ResourceWorkspaceAdmission); err != nil {
+		return 0, err
+	}
+	return q.db.DisableWorkspaceAdmissionTemplateAutostop(ctx, arg)
 }
 
 func (q *querier) EnqueueNotificationMessage(ctx context.Context, arg database.EnqueueNotificationMessageParams) error {
