@@ -313,7 +313,8 @@ func TestWakeIntentAppOtherUser(t *testing.T) {
 func TestWakeIntentExplicit(t *testing.T) {
 	t.Parallel()
 	env := newWakeEnv(t)
-	ctx := testutil.Context(t, testutil.WaitLong)
+	// One context covers every case below, one request after another.
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 
 	// The agent of a managed workspace is not connected, as while its
 	// microVM sleeps. The intent is written before the answer.
