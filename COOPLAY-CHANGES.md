@@ -7,7 +7,8 @@ the license.
 
 - Base: Coder tag `v2.37.6`, commit `c57613f858ba063507e4106ec3a7ce683df4d1d2`.
 - Modified by: Cooplay.
-- Dates of modification: 2026-10-25, 2026-10-26, 2026-10-29 and 2026-10-30.
+- Dates of modification: 2026-10-25, 2026-10-26, 2026-10-29, 2026-10-30
+  and 2026-10-31.
 
 The modifications only use and change AGPL-licensed code. No code under
 `enterprise/` is used, enabled or modified, and no entitlement checks were
@@ -272,3 +273,27 @@ Modified areas:
   (`coderd/apidoc`, `docs/reference/api`, `site/src/api/typesGenerated.ts`),
   including the metric list (`docs/admin/integrations/prometheus.md`,
   `scripts/metricsdocgen/generated_metrics`).
+
+## Tests and generated files
+
+The changes above include tests and generated files in the following areas,
+modified on 2026-10-30 and reviewed on 2026-10-31:
+
+- Agent reconnect, sleep, wake and session tests (`agent`,
+  `agent/agentsocket`, `agent/agentssh`), generated agent socket protocol
+  bindings (`agent/agentsocket/proto`), and tailnet connection, timeout,
+  session count and service tests (`tailnet`).
+- CLI wake, admission, command help and session tests and fixtures (`cli`,
+  `cli/cliui`, `cli/testdata`).
+- Admission API, intent recorder, workspace, schedule, controller proxy,
+  authorization and query tests (`coderd`, `coderd/workspaceadmission`,
+  `coderd/database`, `coderd/database/dbauthz`, `coderd/schedule`), migration
+  fixtures (`coderd/database/migrations/testdata/fixtures`), and admission
+  lifecycle tests (`coderd/autobuild`, `coderd/jobreaper`,
+  `coderd/provisionerdserver`, `coderd/wsbuilder`).
+- Generated database models, queries, constraints, mocks and metrics
+  (`coderd/database`), RBAC objects and scopes (`coderd/rbac`), SDK types
+  and tests (`codersdk`), and frontend RBAC and API types (`site/src/api`).
+- Workspace page and status stories, tests and fixtures
+  (`site/src/pages/WorkspacePage`, `site/src/modules/resources`,
+  `site/src/modules/workspaces`, `site/src/testHelpers`, `site/src/utils`).
