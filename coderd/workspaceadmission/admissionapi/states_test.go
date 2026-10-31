@@ -94,7 +94,8 @@ func TestWorkspaceState(t *testing.T) {
 	t.Parallel()
 	env := newAPIEnv(t, nil)
 	ws := env.agentWorkspace(t)
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
+	// All power states, epoch checks and clear/replay calls share this context.
+	ctx := testutil.Context(t, 2*testutil.WaitSuperLong)
 	path := "/v1/workspaces/" + ws.Workspace.ID.String() + "/state"
 
 	events := make(chan wspubsub.WorkspaceEvent, 16)

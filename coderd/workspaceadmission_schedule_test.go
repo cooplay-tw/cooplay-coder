@@ -31,7 +31,8 @@ func TestManagedTemplateSchedule(t *testing.T) {
 	})
 	first := coderdtest.CreateFirstUser(t, owner)
 	member, memberUser := coderdtest.CreateAnotherUser(t, owner, first.OrganizationID)
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
+	// Four builds and their API checks share this workflow context.
+	ctx := testutil.Context(t, 2*testutil.WaitSuperLong)
 
 	version := coderdtest.CreateTemplateVersion(t, owner, first.OrganizationID, admissiontest.ProfileResponses())
 	coderdtest.AwaitTemplateVersionJobCompleted(t, owner, version.ID)

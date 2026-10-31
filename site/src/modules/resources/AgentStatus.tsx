@@ -255,18 +255,21 @@ const PowerStatus: FC<{ power: WorkspaceCooplayPowerState }> = ({ power }) => {
 	const transitioning = power === "waking" || power === "sleeping";
 	return (
 		<Tooltip>
-			<TooltipTrigger asChild>
-				<div
-					role="status"
-					aria-label={text}
-					className={cn(
-						statusDotBaseClassName,
-						transitioning
-							? statusDotConnectingClassName
-							: statusDotDisconnectedClassName,
-					)}
-				/>
-			</TooltipTrigger>
+			<span role="status" aria-label={text} className="inline-flex">
+				<TooltipTrigger asChild>
+					<button
+						type="button"
+						aria-label={text}
+						className={cn(
+							statusDotBaseClassName,
+							"border-0 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-content-link",
+							transitioning
+								? statusDotConnectingClassName
+								: statusDotDisconnectedClassName,
+						)}
+					/>
+				</TooltipTrigger>
+			</span>
 			<TooltipContent side="bottom">
 				{text}. Connecting to the workspace wakes it.
 			</TooltipContent>

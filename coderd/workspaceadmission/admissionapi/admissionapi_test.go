@@ -65,7 +65,7 @@ func writeTokenHash(t *testing.T, token string) string {
 // newAPIEnv starts coderd with a managed template and the admission API. No
 // provisioner runs after the template import, so tests decide when jobs are
 // acquired.
-func newAPIEnv(t *testing.T, clock quartz.Clock) apiEnv {
+func newAPIEnv(t *testing.T, clock quartz.Clock, configure ...func(*admissionapi.Options)) apiEnv {
 	t.Helper()
 	db, ps := dbtestutil.NewDB(t)
 	owner, provisioner, api := coderdtest.NewWithAPI(t, &coderdtest.Options{
@@ -91,7 +91,7 @@ func newAPIEnv(t *testing.T, clock quartz.Clock) apiEnv {
 	admissiontest.Entitle(t, db, memberUser.ID, template.ID, "small", "large")
 
 	hashFile := writeTokenHash(t, testToken)
-	server, err := admissionapi.New(admissionapi.Options{
+	options := admissionapi.Options{
 		// Tests break the token hash file on purpose, which logs errors.
 		Logger:                         slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}),
 		Database:                       api.Database,
@@ -104,7 +104,11 @@ func newAPIEnv(t *testing.T, clock quartz.Clock) apiEnv {
 		Clock:                          clock,
 		AgentInactiveDisconnectTimeout: api.AgentInactiveDisconnectTimeout,
 		CreateWorkspace:                api.CreateWorkspaceForAdmission,
-	})
+	}
+	for _, configure := range configure {
+		configure(&options)
+	}
+	server, err := admissionapi.New(options)
 	require.NoError(t, err)
 	srv := httptest.NewServer(server.Handler())
 	t.Cleanup(srv.Close)

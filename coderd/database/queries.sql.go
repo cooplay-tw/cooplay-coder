@@ -33189,7 +33189,7 @@ INSERT INTO workspace_admission_keepalive_intents (
 	$3,
 	$4,
 	$5,
-	$4
+	clock_timestamp()
 )
 ON CONFLICT (workspace_id) DO UPDATE SET
 	organization_id = EXCLUDED.organization_id,
@@ -33264,7 +33264,7 @@ INSERT INTO workspace_admission_wake_intents (
 	$6,
 	$7,
 	$8,
-	$7
+	clock_timestamp()
 )
 ON CONFLICT (workspace_id) DO UPDATE SET
 	organization_id = EXCLUDED.organization_id,

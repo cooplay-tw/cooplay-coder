@@ -177,7 +177,11 @@ Modified areas:
   the power state queries in `queries/workspaceadmissionstates.sql`. A
   power state the controller reported as off keeps its power epoch
   (`off_at`) and counts as absent. The admission change cursor covers
-  admission records, intents and reported power states.
+  admission records, intents and reported power states. Migration `000588`
+  adds `workspace_admission_watch_clock` and triggers that serialize change
+  timestamps across those four tables. Wake and keepalive request times
+  remain separate from their write times, so delayed writes advance the
+  cursor even when notifications are missed.
 - RBAC (`coderd/rbac`, `coderd/database/dbauthz`): a `workspace_wake_recorder`
   subject that can only read managed templates, workspaces and their
   agents and create intent records. It cannot acknowledge intents.
@@ -215,7 +219,9 @@ Modified areas:
   admission service creates a workspace with the owner's own permissions
   through the regular workspace create path, which gains a hook that runs
   after the build and its admission were inserted in the same transaction.
-  Owners that are not active users are refused.
+  Owners that are not active users are refused. Concurrent DELETE retries
+  replay the committed operation after transaction errors, including a
+  retry that waited for the grant lock.
 - Grant scope mirror (`coderd/workspaceadmission/admissionapi`,
   `queries/workspaceadmissionoperations.sql`): creates and deletes under a
   platform capability grant check a mirrored copy of its scope (owner,
@@ -243,7 +249,8 @@ Modified areas:
   pending, a "Keep awake 2 h" button, and a Runs panel shows the Runs,
   last job, git and pull request facts and the creating Run and grant.
   Stories and fixtures (`site/src/testHelpers/entities.ts`) cover each
-  power state.
+  power state. The agent power-status explanation is reachable by
+  keyboard through a named button that preserves the status announcement.
 - Controller user API route (`coderd/cooplay_devws_proxy.go`,
   `coderd/coderd.go`, `codersdk/deployment.go`, `cli/server_admission.go`):
   with the hidden server option `--workspace-admission-controller-url`
@@ -277,7 +284,7 @@ Modified areas:
 ## Tests and generated files
 
 The changes above include tests and generated files in the following areas,
-modified on 2026-10-30 and reviewed on 2026-10-31:
+modified on 2026-10-30 and 2026-10-31:
 
 - Agent reconnect, sleep, wake and session tests (`agent`,
   `agent/agentsocket`, `agent/agentssh`), generated agent socket protocol

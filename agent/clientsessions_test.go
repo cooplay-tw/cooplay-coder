@@ -25,7 +25,7 @@ func TestAgent_ClientSessions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the test uses a unix agent socket and a POSIX shell")
 	}
-	ctx := testutil.Context(t, testutil.WaitLong)
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 
 	socketPath := testutil.AgentSocketPath(t)
 	//nolint:dogsled

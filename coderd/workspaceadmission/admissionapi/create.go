@@ -540,10 +540,9 @@ func (s *Server) deleteWorkspace(rw http.ResponseWriter, r *http.Request) {
 		resp = DeleteWorkspaceResponse{BuildID: build.ID, JobID: job.ID}
 		return nil
 	}, nil)
-	if err != nil && (database.IsUniqueViolation(err, database.UniqueWorkspaceAdmissionDeleteOperationsPkey) ||
-		database.IsUniqueViolation(err, database.UniqueWorkspaceBuildsWorkspaceIDBuildNumberKey)) {
-		// A concurrent request with the same operation won the race, or
-		// another build was inserted concurrently.
+	if err != nil {
+		// A retry may observe the winning DELETE as an active build after
+		// its operation lookup, including while waiting for a grant lock.
 		existing, done, lookupErr := existingDeleteOperation(ctx, s.db, body.OperationID, workspaceID)
 		switch {
 		case lookupErr != nil:
@@ -553,7 +552,8 @@ func (s *Server) deleteWorkspace(rw http.ResponseWriter, r *http.Request) {
 			deleteJob = nil
 			canceled = uuid.NullUUID{}
 			err = nil
-		default:
+		case database.IsUniqueViolation(err, database.UniqueWorkspaceAdmissionDeleteOperationsPkey),
+			database.IsUniqueViolation(err, database.UniqueWorkspaceBuildsWorkspaceIDBuildNumberKey):
 			err = newAPIError(http.StatusConflict, CodeActiveBuild, "Another build was created concurrently. Retry the request.")
 		}
 	}

@@ -89,6 +89,7 @@ const (
 	CheckWorkspaceAdmissionWakeIntentsRequestCountCheck      CheckConstraint = "workspace_admission_wake_intents_request_count_check"      // workspace_admission_wake_intents
 	CheckWorkspaceAdmissionWakeIntentsRequestedAtCheck       CheckConstraint = "workspace_admission_wake_intents_requested_at_check"       // workspace_admission_wake_intents
 	CheckWorkspaceAdmissionWakeIntentsSourceCheck            CheckConstraint = "workspace_admission_wake_intents_source_check"             // workspace_admission_wake_intents
+	CheckWorkspaceAdmissionWatchClockSingletonCheck          CheckConstraint = "workspace_admission_watch_clock_singleton_check"           // workspace_admission_watch_clock
 	CheckWorkspaceAdmissionWorkspaceStatesFactsCheck         CheckConstraint = "workspace_admission_workspace_states_facts_check"          // workspace_admission_workspace_states
 	CheckWorkspaceAdmissionWorkspaceStatesGenerationCheck    CheckConstraint = "workspace_admission_workspace_states_generation_check"     // workspace_admission_workspace_states
 	CheckWorkspaceAdmissionWorkspaceStatesLastSampleCheck    CheckConstraint = "workspace_admission_workspace_states_last_sample_check"    // workspace_admission_workspace_states

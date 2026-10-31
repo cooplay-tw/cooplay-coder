@@ -2,6 +2,7 @@ package database_test
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -531,4 +532,102 @@ func TestWorkspaceAdmissionWorkspaceStateConstraints(t *testing.T) {
 	require.NoError(t, insert("running", "[]", `{"memory_mib":512}`))
 	err := insert("running", "[]", fmt.Sprintf(`{"pad":%q}`, strings.Repeat("x", 4096)))
 	require.True(t, database.IsCheckViolation(err, database.CheckWorkspaceAdmissionWorkspaceStatesLastSampleCheck), "got %v", err)
+}
+
+// A queued wake must remain visible after another table advanced the cursor.
+func TestWorkspaceAdmissionDelayedWakeWatermark(t *testing.T) {
+	t.Parallel()
+	db, _ := dbtestutil.NewDB(t)
+	ws := managedWorkspace(t, db)
+	ctx := testutil.Context(t, testutil.WaitLong)
+	requestedAt := dbtime.Now().Add(-time.Second)
+	_, err := db.UpsertWorkspaceAdmissionWorkspaceState(ctx, database.UpsertWorkspaceAdmissionWorkspaceStateParams{
+		WorkspaceID: ws.Workspace.ID, OrganizationID: ws.Workspace.OrganizationID,
+		PowerState: "hibernated", PowerEpoch: 1, Generation: 1,
+		Since: requestedAt, Runs: json.RawMessage(`[]`), UpdatedAt: dbtime.Now(),
+	})
+	require.NoError(t, err)
+	before, err := db.GetWorkspaceBuildAdmissionsWatermark(ctx)
+	require.NoError(t, err)
+	intent := upsertWakeIntent(t, db, ws.Workspace, ws.Agents[0].ID, requestedAt, requestedAt, 1)
+	require.True(t, intent.LastRequestedAt.Equal(requestedAt))
+	require.True(t, intent.UpdatedAt.After(before), "a delayed wake must advance the cross-table cursor")
+	after, err := db.GetWorkspaceBuildAdmissionsWatermark(ctx)
+	require.NoError(t, err)
+	require.True(t, after.After(before))
+	require.Contains(t, pendingWakeIntents(t, db), ws.Workspace.ID)
+}
+
+func TestWorkspaceAdmissionWatermarkCommitOrder(t *testing.T) {
+	t.Parallel()
+	db, _, sqlDB := dbtestutil.NewDBWithSQLDB(t)
+	ws := managedWorkspace(t, db)
+	ctx := testutil.Context(t, testutil.WaitLong)
+	requestedAt := dbtime.Now().Add(-time.Second)
+	firstWritten, releaseFirst := make(chan struct{}), make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- db.InTx(func(tx database.Store) error {
+			_, err := tx.UpsertWorkspaceAdmissionWorkspaceState(ctx, database.UpsertWorkspaceAdmissionWorkspaceStateParams{
+				WorkspaceID: ws.Workspace.ID, OrganizationID: ws.Workspace.OrganizationID,
+				PowerState: "hibernated", PowerEpoch: 1, Generation: 1,
+				Since: requestedAt, Runs: json.RawMessage(`[]`), UpdatedAt: dbtime.Now(),
+			})
+			if err != nil {
+				return err
+			}
+			close(firstWritten)
+			select {
+			case <-releaseFirst:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}, nil)
+	}()
+	testutil.TryReceive(ctx, t, firstWritten)
+
+	conn, err := sqlDB.Conn(ctx)
+	require.NoError(t, err)
+	defer conn.Close()
+	var pid int
+	require.NoError(t, conn.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&pid))
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	secondWritten, releaseSecond := make(chan struct{}), make(chan struct{})
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := tx.ExecContext(ctx, `INSERT INTO workspace_admission_wake_intents
+			(workspace_id, organization_id, agent_id, source, first_requested_at, last_requested_at, request_count, updated_at)
+			VALUES ($1, $2, $3, 'tailnet', $4, $4, 1, $4)`, ws.Workspace.ID, ws.Workspace.OrganizationID, ws.Agents[0].ID, requestedAt)
+		if err != nil {
+			secondDone <- err
+			return
+		}
+		close(secondWritten)
+		select {
+		case <-releaseSecond:
+			secondDone <- tx.Commit()
+		case <-ctx.Done():
+			secondDone <- ctx.Err()
+		}
+	}()
+	// The second statement started with a snapshot that cannot see the first
+	// write. Its timestamp must still advance after waiting for that commit.
+	require.Eventually(t, func() bool {
+		var blocked bool
+		err := sqlDB.QueryRowContext(ctx, "SELECT cardinality(pg_blocking_pids($1)) > 0", pid).Scan(&blocked)
+		return err == nil && blocked
+	}, testutil.WaitShort, testutil.IntervalFast)
+	close(releaseFirst)
+	require.NoError(t, testutil.TryReceive(ctx, t, firstDone))
+	testutil.TryReceive(ctx, t, secondWritten)
+	before, err := db.GetWorkspaceBuildAdmissionsWatermark(ctx)
+	require.NoError(t, err)
+	close(releaseSecond)
+	require.NoError(t, testutil.TryReceive(ctx, t, secondDone))
+	after, err := db.GetWorkspaceBuildAdmissionsWatermark(ctx)
+	require.NoError(t, err)
+	require.True(t, after.After(before), "the later commit must advance the cursor")
 }

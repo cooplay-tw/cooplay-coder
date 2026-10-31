@@ -177,13 +177,33 @@ export const Hibernated: Story = {
 		power: "hibernated",
 	},
 	play: async () => {
-		const status = screen.getByRole("status", { name: "Hibernated" });
-		await userEvent.hover(status);
+		const trigger = screen.getByRole("button", { name: "Hibernated" });
+		await userEvent.hover(trigger);
 		await waitFor(() =>
 			expect(screen.getByRole("tooltip")).toHaveTextContent(
 				"Connecting to the workspace wakes it.",
 			),
 		);
+	},
+};
+
+export const HibernatedKeyboard: Story = {
+	args: Hibernated.args,
+	play: async () => {
+		const trigger = screen.getByRole("button", { name: "Hibernated" });
+		await userEvent.tab();
+		await expect(trigger).toHaveFocus();
+		await expect(
+			screen.getByRole("status", { name: "Hibernated" }),
+		).toBeInTheDocument();
+		await expect(screen.getByRole("tooltip")).toHaveTextContent(
+			"Connecting to the workspace wakes it.",
+		);
+		await userEvent.keyboard("{Escape}");
+		await waitFor(() =>
+			expect(screen.queryByRole("tooltip")).not.toBeInTheDocument(),
+		);
+		await expect(trigger).toHaveFocus();
 	},
 };
 

@@ -6736,6 +6736,11 @@ type WorkspaceAdmissionWakeIntent struct {
 	UpdatedAt       time.Time      `db:"updated_at" json:"updated_at"`
 }
 
+type WorkspaceAdmissionWatchClock struct {
+	Singleton bool      `db:"singleton" json:"singleton"`
+	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+}
+
 // Power state, runs and facts of managed workspaces as pushed by the controller, for display. The controller is authoritative; a missing row means not reported, a row with off_at means off.
 type WorkspaceAdmissionWorkspaceState struct {
 	WorkspaceID    uuid.UUID `db:"workspace_id" json:"workspace_id"`

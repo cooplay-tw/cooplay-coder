@@ -342,3 +342,29 @@ func TestWatchWakesOnKeepaliveIntents(t *testing.T) {
 	require.True(t, resp.Changed)
 	require.NotEqual(t, initial.Cursor, resp.Cursor)
 }
+
+func TestWatchDelayedWakeWithoutNotification(t *testing.T) {
+	t.Parallel()
+	env := newAPIEnv(t, nil)
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
+	ws := env.agentWorkspace(t)
+	requestedAt := dbtime.Now().Add(-time.Second)
+	_, err := env.db.UpsertWorkspaceAdmissionWorkspaceState(ctx, database.UpsertWorkspaceAdmissionWorkspaceStateParams{
+		WorkspaceID: ws.Workspace.ID, OrganizationID: ws.Workspace.OrganizationID,
+		PowerState: "hibernated", PowerEpoch: 1, Generation: 1,
+		Since: requestedAt, Runs: json.RawMessage(`[]`), UpdatedAt: dbtime.Now(),
+	})
+	require.NoError(t, err)
+	var before admissionapi.WatchResponse
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/watch", nil, &before))
+	_, err = env.db.UpsertWorkspaceAdmissionWakeIntent(ctx, database.UpsertWorkspaceAdmissionWakeIntentParams{
+		WorkspaceID: ws.Workspace.ID, OrganizationID: ws.Workspace.OrganizationID,
+		AgentID: ws.Agents[0].ID, Source: "tailnet", RequestCount: 1,
+		FirstRequestedAt: requestedAt, LastRequestedAt: requestedAt,
+	})
+	require.NoError(t, err)
+	var after admissionapi.WatchResponse
+	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/watch?timeout_seconds=1&cursor="+before.Cursor, nil, &after))
+	require.True(t, after.Changed, "a delayed wake must be visible even without pubsub")
+	require.NotEqual(t, before.Cursor, after.Cursor)
+}

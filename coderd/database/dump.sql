@@ -1291,6 +1291,16 @@ BEGIN
 END;
 $$;
 
+CREATE FUNCTION lock_workspace_admission_watch_clock() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    PERFORM singleton FROM workspace_admission_watch_clock
+    WHERE singleton FOR UPDATE;
+    RETURN NULL;
+END;
+$$;
+
 CREATE FUNCTION nullify_next_start_at_on_workspace_autostart_modification() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -1519,6 +1529,25 @@ END;
 $$;
 
 COMMENT ON FUNCTION set_chat_message_revision_before() IS 'Component of chatd. Updates chat_snapshot_version when any fields of chat_messages change. Excludes changes to search_tsv and search_tsv_config as they are not relevant to chatd''s processing loop.';
+
+CREATE FUNCTION stamp_workspace_admission_watch_update() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' AND NEW IS NOT DISTINCT FROM OLD THEN
+        RETURN NEW;
+    END IF;
+    UPDATE workspace_admission_watch_clock
+    SET updated_at = GREATEST(
+        clock_timestamp(),
+        updated_at + INTERVAL '1 microsecond',
+        NEW.updated_at
+    )
+    WHERE singleton
+    RETURNING updated_at INTO NEW.updated_at;
+    RETURN NEW;
+END;
+$$;
 
 CREATE FUNCTION sync_chat_retry_state() RETURNS trigger
     LANGUAGE plpgsql
@@ -3971,6 +4000,12 @@ COMMENT ON COLUMN workspace_admission_wake_intents.request_count IS 'Requests si
 
 COMMENT ON COLUMN workspace_admission_wake_intents.acked_power_epoch IS 'Controller power epoch that the acknowledgement reported.';
 
+CREATE TABLE workspace_admission_watch_clock (
+    singleton boolean DEFAULT true NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT workspace_admission_watch_clock_singleton_check CHECK (singleton)
+);
+
 CREATE TABLE workspace_admission_workspace_states (
     workspace_id uuid NOT NULL,
     organization_id uuid NOT NULL,
@@ -4991,6 +5026,9 @@ ALTER TABLE ONLY workspace_admission_templates
 ALTER TABLE ONLY workspace_admission_wake_intents
     ADD CONSTRAINT workspace_admission_wake_intents_pkey PRIMARY KEY (workspace_id);
 
+ALTER TABLE ONLY workspace_admission_watch_clock
+    ADD CONSTRAINT workspace_admission_watch_clock_pkey PRIMARY KEY (singleton);
+
 ALTER TABLE ONLY workspace_admission_workspace_states
     ADD CONSTRAINT workspace_admission_workspace_states_pkey PRIMARY KEY (workspace_id);
 
@@ -5575,11 +5613,27 @@ CREATE TRIGGER update_notification_message_dedupe_hash BEFORE INSERT OR UPDATE O
 
 CREATE TRIGGER user_status_change_trigger AFTER INSERT OR UPDATE ON users FOR EACH ROW EXECUTE FUNCTION record_user_status_change();
 
+CREATE TRIGGER workspace_admission_keepalive_intents_watch_lock BEFORE INSERT OR DELETE OR UPDATE ON workspace_admission_keepalive_intents FOR EACH STATEMENT EXECUTE FUNCTION lock_workspace_admission_watch_clock();
+
+CREATE TRIGGER workspace_admission_keepalive_intents_watch_stamp BEFORE INSERT OR UPDATE ON workspace_admission_keepalive_intents FOR EACH ROW EXECUTE FUNCTION stamp_workspace_admission_watch_update();
+
+CREATE TRIGGER workspace_admission_wake_intents_watch_lock BEFORE INSERT OR DELETE OR UPDATE ON workspace_admission_wake_intents FOR EACH STATEMENT EXECUTE FUNCTION lock_workspace_admission_watch_clock();
+
+CREATE TRIGGER workspace_admission_wake_intents_watch_stamp BEFORE INSERT OR UPDATE ON workspace_admission_wake_intents FOR EACH ROW EXECUTE FUNCTION stamp_workspace_admission_watch_update();
+
+CREATE TRIGGER workspace_admission_workspace_states_watch_lock BEFORE INSERT OR DELETE OR UPDATE ON workspace_admission_workspace_states FOR EACH STATEMENT EXECUTE FUNCTION lock_workspace_admission_watch_clock();
+
+CREATE TRIGGER workspace_admission_workspace_states_watch_stamp BEFORE INSERT OR UPDATE ON workspace_admission_workspace_states FOR EACH ROW EXECUTE FUNCTION stamp_workspace_admission_watch_update();
+
 CREATE TRIGGER workspace_agent_name_unique_trigger BEFORE INSERT OR UPDATE OF name, resource_id ON workspace_agents FOR EACH ROW EXECUTE FUNCTION check_workspace_agent_name_unique();
 
 COMMENT ON TRIGGER workspace_agent_name_unique_trigger ON workspace_agents IS 'Use a trigger instead of a unique constraint because existing data may violate
 the uniqueness requirement. A trigger allows us to enforce uniqueness going
 forward without requiring a migration to clean up historical data.';
+
+CREATE TRIGGER workspace_build_admissions_watch_lock BEFORE INSERT OR DELETE OR UPDATE ON workspace_build_admissions FOR EACH STATEMENT EXECUTE FUNCTION lock_workspace_admission_watch_clock();
+
+CREATE TRIGGER workspace_build_admissions_watch_stamp BEFORE INSERT OR UPDATE ON workspace_build_admissions FOR EACH ROW EXECUTE FUNCTION stamp_workspace_admission_watch_update();
 
 ALTER TABLE ONLY ai_provider_keys
     ADD CONSTRAINT ai_provider_keys_api_key_key_id_fkey FOREIGN KEY (api_key_key_id) REFERENCES dbcrypt_keys(active_key_digest);

@@ -1,0 +1,11 @@
+DROP TRIGGER IF EXISTS workspace_admission_workspace_states_watch_stamp ON workspace_admission_workspace_states;
+DROP TRIGGER IF EXISTS workspace_admission_workspace_states_watch_lock ON workspace_admission_workspace_states;
+DROP TRIGGER IF EXISTS workspace_admission_keepalive_intents_watch_stamp ON workspace_admission_keepalive_intents;
+DROP TRIGGER IF EXISTS workspace_admission_keepalive_intents_watch_lock ON workspace_admission_keepalive_intents;
+DROP TRIGGER IF EXISTS workspace_admission_wake_intents_watch_stamp ON workspace_admission_wake_intents;
+DROP TRIGGER IF EXISTS workspace_admission_wake_intents_watch_lock ON workspace_admission_wake_intents;
+DROP TRIGGER IF EXISTS workspace_build_admissions_watch_stamp ON workspace_build_admissions;
+DROP TRIGGER IF EXISTS workspace_build_admissions_watch_lock ON workspace_build_admissions;
+DROP FUNCTION IF EXISTS stamp_workspace_admission_watch_update();
+DROP FUNCTION IF EXISTS lock_workspace_admission_watch_clock();
+DROP TABLE IF EXISTS workspace_admission_watch_clock;

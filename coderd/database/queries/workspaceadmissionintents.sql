@@ -66,7 +66,7 @@ INSERT INTO workspace_admission_wake_intents (
 	@first_requested_at,
 	@last_requested_at,
 	@request_count,
-	@last_requested_at
+	clock_timestamp()
 )
 ON CONFLICT (workspace_id) DO UPDATE SET
 	organization_id = EXCLUDED.organization_id,
@@ -149,7 +149,7 @@ INSERT INTO workspace_admission_keepalive_intents (
 	@requested_by,
 	@requested_at,
 	@for_seconds,
-	@requested_at
+	clock_timestamp()
 )
 ON CONFLICT (workspace_id) DO UPDATE SET
 	organization_id = EXCLUDED.organization_id,
