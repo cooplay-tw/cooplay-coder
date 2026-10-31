@@ -206,6 +206,7 @@ func TestCreateWorkspace(t *testing.T) {
 
 		// Suspended owners are refused until they are active again.
 		_, user := coderdtest.CreateAnotherUser(t, env.owner, env.orgID)
+		ctx = testutil.Context(t, testutil.WaitSuperLong)
 		admissiontest.Entitle(t, env.db, user.ID, env.template.ID, "small")
 		body := env.createBody("suspended")
 		body.OwnerID = user.ID
@@ -224,10 +225,10 @@ func TestCreateWorkspace(t *testing.T) {
 	// entitled.
 	t.Run("InactiveOwners", func(t *testing.T) {
 		t.Parallel()
-		ctx := testutil.Context(t, testutil.WaitSuperLong)
 		var errResp admissionapi.ErrorResponse
 
 		_, dormant := coderdtest.CreateAnotherUser(t, env.owner, env.orgID)
+		ctx := testutil.Context(t, testutil.WaitSuperLong)
 		_, err := env.db.UpdateUserStatus(ctx, database.UpdateUserStatusParams{
 			ID:        dormant.ID,
 			Status:    database.UserStatusDormant,
@@ -235,6 +236,7 @@ func TestCreateWorkspace(t *testing.T) {
 		})
 		require.NoError(t, err)
 		_, deleted := coderdtest.CreateAnotherUser(t, env.owner, env.orgID)
+		ctx = testutil.Context(t, testutil.WaitSuperLong)
 		require.NoError(t, env.owner.DeleteUser(ctx, deleted.ID))
 		for name, ownerID := range map[string]uuid.UUID{
 			"dormant": dormant.ID,
@@ -562,12 +564,12 @@ func TestDeleteWorkspace(t *testing.T) {
 
 	t.Run("Employee", func(t *testing.T) {
 		t.Parallel()
-		ctx := testutil.Context(t, testutil.WaitSuperLong)
 		var errResp admissionapi.ErrorResponse
 
 		// Deleting cancels the pending START and creates the DELETE
 		// together.
 		workspace := env.waitingWorkspace(t, "small")
+		ctx := testutil.Context(t, testutil.WaitSuperLong)
 		startJobID := workspace.LatestBuild.Job.ID
 		op := uuid.New()
 		status, raw := env.callRaw(ctx, t, http.MethodPost, deletePath(workspace.ID), admissionapi.DeleteWorkspaceRequest{OperationID: op})
@@ -598,10 +600,10 @@ func TestDeleteWorkspace(t *testing.T) {
 
 	t.Run("Invalid", func(t *testing.T) {
 		t.Parallel()
-		ctx := testutil.Context(t, testutil.WaitSuperLong)
 		var errResp admissionapi.ErrorResponse
 		workspace := env.waitingWorkspace(t, "small")
 		other := env.waitingWorkspace(t, "small")
+		ctx := testutil.Context(t, testutil.WaitSuperLong)
 
 		// An operation belongs to one workspace.
 		op := uuid.New()
@@ -632,6 +634,7 @@ func TestDeleteWorkspace(t *testing.T) {
 		require.Equal(t, http.StatusCreated, env.call(ctx, t, http.MethodPost, "/v1/workspaces", env.underGrant(noDeleteID, "agent-d2"), &created))
 		byNoDelete := created.WorkspaceID
 		byEmployee := env.waitingWorkspace(t, "small")
+		ctx = testutil.Context(t, testutil.WaitSuperLong)
 
 		// The grant must allow deletes and must have created the workspace.
 		for _, c := range []struct {

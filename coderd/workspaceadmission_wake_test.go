@@ -288,8 +288,8 @@ func TestWakeIntentAppOtherUser(t *testing.T) {
 	t.Parallel()
 	env := newWakeEnv(t)
 	ws := env.managedWorkspace(t)
-	ctx := testutil.Context(t, testutil.WaitLong)
 	other, _ := coderdtest.CreateAnotherUser(t, env.owner, env.orgID)
+	ctx := testutil.Context(t, testutil.WaitLong)
 
 	// A user without access to the app records nothing.
 	member, err := env.member.User(ctx, codersdk.Me)
@@ -313,12 +313,10 @@ func TestWakeIntentAppOtherUser(t *testing.T) {
 func TestWakeIntentExplicit(t *testing.T) {
 	t.Parallel()
 	env := newWakeEnv(t)
-	// One context covers every case below, one request after another.
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
-
 	// The agent of a managed workspace is not connected, as while its
 	// microVM sleeps. The intent is written before the answer.
 	ws := env.managedWorkspace(t)
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	resp, err := env.member.WorkspaceAgentWake(ctx, ws.Agents[0].ID)
 	require.NoError(t, err)
 	require.Equal(t, codersdk.WorkspaceAgentWakeRequested, resp.Result)
@@ -337,6 +335,7 @@ func TestWakeIntentExplicit(t *testing.T) {
 
 	// Unmanaged workspaces never sleep.
 	unmanaged := env.workspace(t)
+	ctx = testutil.Context(t, testutil.WaitSuperLong)
 	resp, err = env.member.WorkspaceAgentWake(ctx, unmanaged.Agents[0].ID)
 	require.NoError(t, err)
 	require.Equal(t, codersdk.WorkspaceAgentWakeNotManaged, resp.Result)
@@ -345,6 +344,7 @@ func TestWakeIntentExplicit(t *testing.T) {
 
 	// A connected agent without a reported sleep needs no wake.
 	running := env.managedWorkspace(t)
+	ctx = testutil.Context(t, testutil.WaitSuperLong)
 	now := dbtime.Now()
 	require.NoError(t, env.db.UpdateWorkspaceAgentConnectionByID(ctx, database.UpdateWorkspaceAgentConnectionByIDParams{
 		ID:               running.Agents[0].ID,
@@ -364,12 +364,14 @@ func TestWakeIntentExplicit(t *testing.T) {
 		BuildNumber: 2,
 		Transition:  database.WorkspaceTransitionStop,
 	}).Do()
+	ctx = testutil.Context(t, testutil.WaitSuperLong)
 	resp, err = env.member.WorkspaceAgentWake(ctx, stopped.Agents[0].ID)
 	require.NoError(t, err)
 	require.Equal(t, codersdk.WorkspaceAgentWakeNotStarted, resp.Result)
 
 	// Users who may not connect to the agent learn nothing.
 	other, _ := coderdtest.CreateAnotherUser(t, env.owner, env.orgID)
+	ctx = testutil.Context(t, testutil.WaitSuperLong)
 	_, err = other.WorkspaceAgentWake(ctx, ws.Agents[0].ID)
 	var sdkErr *codersdk.Error
 	require.ErrorAs(t, err, &sdkErr)

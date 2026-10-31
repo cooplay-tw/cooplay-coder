@@ -31,9 +31,6 @@ func TestManagedTemplateSchedule(t *testing.T) {
 	})
 	first := coderdtest.CreateFirstUser(t, owner)
 	member, memberUser := coderdtest.CreateAnotherUser(t, owner, first.OrganizationID)
-	// Four builds and their API checks share this workflow context.
-	ctx := testutil.Context(t, 2*testutil.WaitSuperLong)
-
 	version := coderdtest.CreateTemplateVersion(t, owner, first.OrganizationID, admissiontest.ProfileResponses())
 	coderdtest.AwaitTemplateVersionJobCompleted(t, owner, version.ID)
 	template := coderdtest.CreateTemplate(t, owner, first.OrganizationID, version.ID, func(req *codersdk.CreateTemplateRequest) {
@@ -48,6 +45,7 @@ func TestManagedTemplateSchedule(t *testing.T) {
 	completedBuild := func(buildID uuid.UUID) codersdk.WorkspaceBuild {
 		t.Helper()
 		coderdtest.AwaitWorkspaceBuildJobCompleted(t, member, buildID)
+		ctx := testutil.Context(t, 2*testutil.WaitSuperLong)
 		build, err := member.WorkspaceBuild(ctx, buildID)
 		require.NoError(t, err)
 		return build
@@ -74,6 +72,7 @@ func TestManagedTemplateSchedule(t *testing.T) {
 	require.True(t, build.Deadline.IsZero(), "deadline %v", build.Deadline)
 
 	// Users cannot set a TTL, and there is no deadline to extend.
+	ctx := testutil.Context(t, 2*testutil.WaitSuperLong)
 	err := member.UpdateWorkspaceTTL(ctx, workspace.ID, codersdk.UpdateWorkspaceTTLRequest{
 		TTLMillis: ptr.Ref(time.Hour.Milliseconds()),
 	})
@@ -90,6 +89,7 @@ func TestManagedTemplateSchedule(t *testing.T) {
 	// managed has no deadline either.
 	restart := coderdtest.CreateWorkspaceBuild(t, member, unmanaged, database.WorkspaceTransitionStop)
 	coderdtest.AwaitWorkspaceBuildJobCompleted(t, member, restart.ID)
+	ctx = testutil.Context(t, 2*testutil.WaitSuperLong)
 	start, err := member.CreateWorkspaceBuild(ctx, unmanaged.ID, codersdk.CreateWorkspaceBuildRequest{
 		Transition: codersdk.WorkspaceTransitionStart,
 	})

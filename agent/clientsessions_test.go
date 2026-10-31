@@ -25,14 +25,13 @@ func TestAgent_ClientSessions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the test uses a unix agent socket and a POSIX shell")
 	}
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
-
 	socketPath := testutil.AgentSocketPath(t)
 	//nolint:dogsled
 	conn, _, _, _, _ := setupAgent(t, agentsdk.Manifest{}, 0, func(_ *agenttest.Client, o *agent.Options) {
 		o.SocketServerEnabled = true
 		o.SocketPath = socketPath
 	})
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	socket, err := agentsocket.NewClient(ctx, agentsocket.WithPath(socketPath))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = socket.Close() })

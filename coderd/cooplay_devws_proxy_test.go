@@ -395,9 +395,8 @@ func TestCooplayDevwsProxy(t *testing.T) {
 
 func TestCooplayDevwsProxyDisabled(t *testing.T) {
 	t.Parallel()
-	ctx := testutil.Context(t, testutil.WaitLong)
-
 	client, _ := newDevwsCoderd(t, "")
+	ctx := testutil.Context(t, testutil.WaitLong)
 	res := devwsRequest(ctx, t, client, http.MethodGet, "/v1/me", nil, sessionHeader(client))
 	defer res.Body.Close()
 	require.Equal(t, http.StatusNotFound, res.StatusCode)
@@ -405,8 +404,6 @@ func TestCooplayDevwsProxyDisabled(t *testing.T) {
 
 func TestCooplayDevwsProxyControllerDown(t *testing.T) {
 	t.Parallel()
-	ctx := testutil.Context(t, testutil.WaitLong)
-
 	// A port nothing listens on.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -414,6 +411,7 @@ func TestCooplayDevwsProxyControllerDown(t *testing.T) {
 	require.NoError(t, listener.Close())
 
 	client, _ := newDevwsCoderd(t, controllerURL)
+	ctx := testutil.Context(t, testutil.WaitLong)
 	res := devwsRequest(ctx, t, client, http.MethodGet, "/v1/me", nil, sessionHeader(client))
 	defer res.Body.Close()
 	require.Equal(t, http.StatusBadGateway, res.StatusCode)

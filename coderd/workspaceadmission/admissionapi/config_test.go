@@ -31,6 +31,7 @@ func TestPutTemplateDisablesAutostop(t *testing.T) {
 	workspace := coderdtest.CreateWorkspace(t, env.owner, env.unmanaged.ID, func(req *codersdk.CreateWorkspaceRequest) {
 		req.TTLMillis = ptr.Ref((2 * time.Hour).Milliseconds())
 	})
+	ctx = testutil.Context(t, testutil.WaitSuperLong)
 	deadline := dbtime.Now().Add(time.Hour)
 	require.NoError(t, env.db.UpdateWorkspaceBuildDeadlineByID(ctx, database.UpdateWorkspaceBuildDeadlineByIDParams{
 		ID:        workspace.LatestBuild.ID,

@@ -100,6 +100,7 @@ func TestDeleteWorkspaceConcurrentRetry(t *testing.T) {
 			} else {
 				workspaceID = env.waitingWorkspace(t, "small").ID
 			}
+			ctx = testutil.Context(t, testutil.WaitSuperLong)
 			type result struct {
 				status int
 				body   admissionapi.DeleteWorkspaceResponse

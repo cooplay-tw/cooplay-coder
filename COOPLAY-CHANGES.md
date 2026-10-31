@@ -7,8 +7,8 @@ the license.
 
 - Base: Coder tag `v2.37.6`, commit `c57613f858ba063507e4106ec3a7ce683df4d1d2`.
 - Modified by: Cooplay.
-- Dates of modification: 2026-10-25, 2026-10-26, 2026-10-29, 2026-10-30
-  and 2026-10-31.
+- Dates of modification: 2026-10-25, 2026-10-26, 2026-10-29, 2026-10-30,
+  2026-10-31 and 2026-11-01.
 
 The modifications only use and change AGPL-licensed code. No code under
 `enterprise/` is used, enabled or modified, and no entitlement checks were

@@ -238,10 +238,10 @@ func TestNewRequiresTokenHash(t *testing.T) {
 func TestNotOnMainListener(t *testing.T) {
 	t.Parallel()
 	env := newAPIEnv(t, nil)
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	workspace := env.waitingWorkspace(t, "small")
 	jobID := workspace.LatestBuild.Job.ID
 	mainURL := env.owner.URL.String()
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 
 	for _, prefix := range []string{"", "/api/v2"} {
 		for _, token := range []string{testToken, env.owner.SessionToken()} {
@@ -282,10 +282,10 @@ func callWithTokenRaw(ctx context.Context, t *testing.T, baseURL, token, method,
 func TestRequestLifecycle(t *testing.T) {
 	t.Parallel()
 	env := newAPIEnv(t, nil)
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	workspace := env.waitingWorkspace(t, "small")
 	jobID := workspace.LatestBuild.Job.ID
 	path := "/v1/requests/" + jobID.String()
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 
 	var list admissionapi.ListRequestsResponse
 	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/requests?status=waiting,granted", nil, &list))
@@ -371,9 +371,9 @@ func TestRequestLifecycle(t *testing.T) {
 func TestListPagination(t *testing.T) {
 	t.Parallel()
 	env := newAPIEnv(t, nil)
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	first := env.waitingWorkspace(t, "small")
 	second := env.waitingWorkspace(t, "large")
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 
 	var page admissionapi.ListRequestsResponse
 	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/requests?limit=1", nil, &page))
@@ -392,10 +392,10 @@ func TestListPagination(t *testing.T) {
 func TestReject(t *testing.T) {
 	t.Parallel()
 	env := newAPIEnv(t, nil)
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	workspace := env.waitingWorkspace(t, "small")
 	jobID := workspace.LatestBuild.Job.ID
 	path := "/v1/requests/" + jobID.String()
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 
 	var req admissionapi.Request
 	body := admissionapi.RejectRequest{Code: "quota_exceeded", Reason: "the profile exceeds the user quota"}
@@ -421,10 +421,10 @@ func TestReject(t *testing.T) {
 func TestDisplay(t *testing.T) {
 	t.Parallel()
 	env := newAPIEnv(t, nil)
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	a := env.waitingWorkspace(t, "small").LatestBuild.Job.ID
 	b := env.waitingWorkspace(t, "small").LatestBuild.Job.ID
 	granted := env.waitingWorkspace(t, "small").LatestBuild.Job.ID
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	var req admissionapi.Request
 	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodPost, "/v1/requests/"+granted.String()+"/grant", grantBody("small"), &req))
 
@@ -459,8 +459,8 @@ func TestDisplay(t *testing.T) {
 func TestAdmissionChangesNotifyWorkspaceWatchers(t *testing.T) {
 	t.Parallel()
 	env := newAPIEnv(t, nil)
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	workspace := env.waitingWorkspace(t, "small")
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	path := "/v1/requests/" + workspace.LatestBuild.Job.ID.String()
 
 	events := make(chan uuid.UUID, 16)
@@ -651,9 +651,10 @@ func TestUsers(t *testing.T) {
 func TestStopWorkspace(t *testing.T) {
 	t.Parallel()
 	env := newAPIEnv(t, nil)
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	workspace := env.waitingWorkspace(t, "small")
 	startJobID := workspace.LatestBuild.Job.ID
+	// Each workspace scenario gets a request budget after its setup.
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 
 	var list admissionapi.ListWorkspacesResponse
 	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodGet, "/v1/workspaces", nil, &list))
@@ -701,6 +702,7 @@ func TestStopWorkspace(t *testing.T) {
 
 	// The operation belongs to this workspace only.
 	otherWorkspace := env.waitingWorkspace(t, "small")
+	ctx = testutil.Context(t, testutil.WaitSuperLong)
 	require.Equal(t, http.StatusConflict, env.call(ctx, t, http.MethodPost, "/v1/workspaces/"+otherWorkspace.ID.String()+"/stop", admissionapi.StopWorkspaceRequest{OperationID: op}, &errResp))
 	require.Equal(t, admissionapi.CodeOperationConflict, errResp.Code)
 
@@ -726,6 +728,7 @@ func TestStopWorkspace(t *testing.T) {
 
 	// Workspaces of unmanaged templates are not visible.
 	unmanagedWorkspace := coderdtest.CreateWorkspace(t, env.owner, env.unmanaged.ID)
+	ctx = testutil.Context(t, testutil.WaitSuperLong)
 	require.Equal(t, http.StatusNotFound, env.call(ctx, t, http.MethodGet, "/v1/workspaces/"+unmanagedWorkspace.ID.String(), nil, &errResp))
 	require.Equal(t, http.StatusNotFound, env.call(ctx, t, http.MethodPost, "/v1/workspaces/"+unmanagedWorkspace.ID.String()+"/stop", admissionapi.StopWorkspaceRequest{OperationID: uuid.New()}, &errResp))
 }
@@ -733,9 +736,8 @@ func TestStopWorkspace(t *testing.T) {
 func TestCancelJob(t *testing.T) {
 	t.Parallel()
 	env := newAPIEnv(t, nil)
-	ctx := testutil.Context(t, testutil.WaitSuperLong)
-
 	waiting := env.waitingWorkspace(t, "small")
+	ctx := testutil.Context(t, testutil.WaitSuperLong)
 	var resp admissionapi.CancelJobResponse
 	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodPost, "/v1/jobs/"+waiting.LatestBuild.Job.ID.String()+"/cancel", nil, &resp))
 	require.True(t, resp.CanceledBeforeStart)
@@ -746,6 +748,7 @@ func TestCancelJob(t *testing.T) {
 	require.Equal(t, admissionapi.CodeJobCompleted, errResp.Code)
 
 	running := env.waitingWorkspace(t, "small")
+	ctx = testutil.Context(t, testutil.WaitSuperLong)
 	var req admissionapi.Request
 	require.Equal(t, http.StatusOK, env.call(ctx, t, http.MethodPost, "/v1/requests/"+running.LatestBuild.Job.ID.String()+"/grant", grantBody("small"), &req))
 	_, err := admissiontest.Acquire(ctx, env.db, env.orgID)
@@ -759,6 +762,7 @@ func TestCancelJob(t *testing.T) {
 
 	// Jobs outside managed templates cannot be canceled here.
 	version := coderdtest.CreateTemplateVersion(t, env.owner, env.orgID, nil)
+	ctx = testutil.Context(t, testutil.WaitSuperLong)
 	require.Equal(t, http.StatusNotFound, env.call(ctx, t, http.MethodPost, "/v1/jobs/"+version.Job.ID.String()+"/cancel", nil, &errResp))
 }
 
@@ -770,8 +774,8 @@ func TestGrantCancelAcquireRace(t *testing.T) {
 	env := newAPIEnv(t, nil)
 
 	for i := range 10 {
-		ctx := testutil.Context(t, testutil.WaitSuperLong)
 		workspace := env.waitingWorkspace(t, "small")
+		ctx := testutil.Context(t, testutil.WaitSuperLong)
 		jobID := workspace.LatestBuild.Job.ID
 
 		var (
