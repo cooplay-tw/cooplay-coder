@@ -8,7 +8,7 @@ the license.
 - Base: Coder tag `v2.37.6`, commit `c57613f858ba063507e4106ec3a7ce683df4d1d2`.
 - Modified by: Cooplay.
 - Dates of modification: 2026-10-25, 2026-10-26, 2026-10-29, 2026-10-30,
-  2026-10-31 and 2026-11-01.
+  2026-10-31, 2026-11-01 and 2026-11-22.
 
 The modifications only use and change AGPL-licensed code. No code under
 `enterprise/` is used, enabled or modified, and no entitlement checks were
@@ -280,6 +280,40 @@ Modified areas:
   (`coderd/apidoc`, `docs/reference/api`, `site/src/api/typesGenerated.ts`),
   including the metric list (`docs/admin/integrations/prometheus.md`,
   `scripts/metricsdocgen/generated_metrics`).
+
+## Cooplay CLI session handoff
+
+The `cooplay` plugin uses these endpoints under `/api/v2/cooplay/cli-handoff` for one-tab company sign-in.
+
+- `GET /api/v2/cooplay/cli-handoff` is a public, database-free capability probe and returns 200 with `{"version":1}`.
+- `GET /api/v2/cooplay/cli-handoff/authorize` requires exactly one value each for `callback`, `state`, `code_challenge` and `code_challenge_method`.
+  The callback is `http://127.0.0.1:<port>/cooplay/coder-token` with port 1024 through 65535.
+  The state and challenge each contain 43 base64url characters, and the method is `S256`.
+  Invalid parameters return a plain-text 400 before session authentication.
+  A request without a valid session goes to Coder's login page with the original path and query as the return target.
+  An eligible active user with permission to create their own key gets a 303 redirect to `callback?code=<code>&state=<state>`.
+  Authorization responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
+  A full code store returns 503.
+- `POST /api/v2/cooplay/cli-handoff/token` is unauthenticated and uses the per-IP login rate limit and an 8 KiB request limit.
+  The request body is JSON with `code`, `code_verifier` and `callback`.
+  The exchange requires the original callback and a 43- to 128-character PKCE verifier.
+  It then checks that the issuing user is still active and eligible.
+  Success returns 201 with `{"key":"<id>-<secret>"}` and `Cache-Control: no-store`.
+  It uses the standard password-type CLI key lifetime, request IP, and API key creation audit event.
+  Rejected exchanges return 400 with `{"message":"invalid handoff"}`, and the login rate limiter returns 429.
+
+The browser redirect contains a 32-byte random code in base64url form and the caller's state.
+Coder stores the code's SHA-256 hash and consumes it on the first decoded exchange attempt, including attempts with a bad verifier or callback.
+The code expires after 60 seconds and PKCE binds it to the CLI's verifier.
+The session key travels in the exchange response body.
+Software running as the user on their Mac can start its own handoff and can already use the stored session through `coder`.
+
+The store holds at most 1,000 live codes in the single devws `coder.service` process.
+A restart clears outstanding codes.
+A deployment with multiple Coder replicas would need a shared database with atomic consumption.
+The existing `/cli-auth` page and `coder login` flow remain available.
+For rollback, deploy the previous fork tag.
+The plugin's capability probe detects the older server and uses the manual token paste flow.
 
 ## Tests and generated files
 
