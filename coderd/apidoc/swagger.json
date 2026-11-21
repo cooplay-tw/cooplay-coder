@@ -2904,6 +2904,119 @@
 				]
 			}
 		},
+		"/api/v2/cooplay/cli-handoff": {
+			"get": {
+				"produces": ["application/json"],
+				"summary": "Probe Cooplay CLI handoff support",
+				"operationId": "cooplay-cli-handoff-version",
+				"responses": {
+					"200": {
+						"description": "OK",
+						"schema": {
+							"$ref": "#/definitions/coderd.cliHandoffVersion"
+						}
+					}
+				},
+				"x-apidocgen": {
+					"skip": true
+				}
+			}
+		},
+		"/api/v2/cooplay/cli-handoff/authorize": {
+			"get": {
+				"summary": "Authorize a Cooplay CLI handoff",
+				"operationId": "cooplay-cli-handoff-authorize",
+				"parameters": [
+					{
+						"type": "string",
+						"description": "Loopback callback URL",
+						"name": "callback",
+						"in": "query",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "Client state",
+						"name": "state",
+						"in": "query",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "PKCE S256 challenge",
+						"name": "code_challenge",
+						"in": "query",
+						"required": true
+					},
+					{
+						"type": "string",
+						"description": "S256",
+						"name": "code_challenge_method",
+						"in": "query",
+						"required": true
+					}
+				],
+				"responses": {
+					"303": {
+						"description": "Redirect to the loopback callback or login page"
+					},
+					"400": {
+						"description": "Invalid handoff parameters"
+					},
+					"403": {
+						"description": "User cannot create a session key"
+					},
+					"503": {
+						"description": "Handoff code store is full"
+					}
+				},
+				"x-apidocgen": {
+					"skip": true
+				}
+			}
+		},
+		"/api/v2/cooplay/cli-handoff/token": {
+			"post": {
+				"consumes": ["application/json"],
+				"produces": ["application/json"],
+				"summary": "Exchange a Cooplay CLI handoff code for a session key",
+				"operationId": "cooplay-cli-handoff-token",
+				"parameters": [
+					{
+						"description": "Handoff code, PKCE verifier and loopback callback",
+						"name": "request",
+						"in": "body",
+						"required": true,
+						"schema": {
+							"$ref": "#/definitions/coderd.cliHandoffTokenRequest"
+						}
+					}
+				],
+				"responses": {
+					"201": {
+						"description": "Created",
+						"schema": {
+							"$ref": "#/definitions/codersdk.GenerateAPIKeyResponse"
+						}
+					},
+					"400": {
+						"description": "Bad Request",
+						"schema": {
+							"$ref": "#/definitions/codersdk.Response"
+						}
+					},
+					"429": {
+						"description": "Too Many Requests",
+						"schema": {
+							"$ref": "#/definitions/codersdk.Response"
+						}
+					}
+				},
+				"x-apidocgen": {
+					"skip": true
+				}
+			}
+		},
 		"/api/v2/csp/reports": {
 			"post": {
 				"consumes": ["application/json"],
@@ -15366,6 +15479,28 @@
 			"type": "object",
 			"additionalProperties": {
 				"type": "string"
+			}
+		},
+		"coderd.cliHandoffTokenRequest": {
+			"type": "object",
+			"properties": {
+				"callback": {
+					"type": "string"
+				},
+				"code": {
+					"type": "string"
+				},
+				"code_verifier": {
+					"type": "string"
+				}
+			}
+		},
+		"coderd.cliHandoffVersion": {
+			"type": "object",
+			"properties": {
+				"version": {
+					"type": "integer"
+				}
 			}
 		},
 		"coderd.cspViolation": {

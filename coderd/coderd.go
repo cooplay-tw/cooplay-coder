@@ -1115,7 +1115,7 @@ func New(options *Options) *API {
 		AccessURL:                     options.AccessURL,
 	})
 	// Same as above but it redirects to the login page.
-	apiKeyMiddlewareRedirect := httpmw.ExtractAPIKeyMW(httpmw.ExtractAPIKeyConfig{
+	apiKeyRedirectConfig := httpmw.ExtractAPIKeyConfig{
 		DB:                            options.Database,
 		OAuth2Configs:                 oauthConfigs,
 		RedirectToLogin:               true,
@@ -1125,7 +1125,8 @@ func New(options *Options) *API {
 		PostAuthAdditionalHeadersFunc: options.PostAuthAdditionalHeadersFunc,
 		Logger:                        options.Logger,
 		AccessURL:                     options.AccessURL,
-	})
+	}
+	apiKeyMiddlewareRedirect := httpmw.ExtractAPIKeyMW(apiKeyRedirectConfig)
 	// Same as the first but it's optional.
 	apiKeyMiddlewareOptional := httpmw.ExtractAPIKeyMW(httpmw.ExtractAPIKeyConfig{
 		DB:                            options.Database,
@@ -1181,12 +1182,12 @@ func New(options *Options) *API {
 		// the result in context. The rate limiter reads this to key
 		// by user ID, and downstream ExtractAPIKeyMW reuses it to
 		// avoid redundant DB lookups. Never rejects requests.
-		httpmw.PrecheckAPIKey(httpmw.ValidateAPIKeyConfig{
+		skipCooplayCLIHandoffPrecheck(httpmw.PrecheckAPIKey(httpmw.ValidateAPIKeyConfig{
 			DB:                          options.Database,
 			OAuth2Configs:               oauthConfigs,
 			DisableSessionExpiryRefresh: options.DeploymentValues.Sessions.DisableExpiryRefresh.Value(),
 			Logger:                      options.Logger,
-		}),
+		})),
 		httpmw.HTTPRoute, // NB: prometheusMW depends on this middleware.
 		prometheusMW,
 		// Build-Version is helpful for debugging.
@@ -1478,6 +1479,7 @@ func New(options *Options) *API {
 			r.Use(apiKeyMiddleware)
 			r.Handle("/*", api.cooplayDevws)
 		})
+		api.registerCooplayCLIHandoff(r, apiKeyRedirectConfig, newCLIHandoffCodes(time.Now))
 
 		r.Get("/updatecheck", api.updateCheck)
 		r.Route("/audit", func(r chi.Router) {
